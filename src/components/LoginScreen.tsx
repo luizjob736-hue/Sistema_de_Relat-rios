@@ -107,8 +107,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         </form>
 
         <div className="mt-6 pt-4 border-t border-slate-200 text-center text-[10px] font-mono text-slate-500 uppercase">
-          <div>Admin: Admin / Proativa_*2026</div>
-          <div className="mt-1">Editores: Operador 1 a 15 / 123456</div>
+          <div>Acesso Restrito a Usuários Autorizados</div>
         </div>
       </div>
     </div>
