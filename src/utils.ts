@@ -77,6 +77,14 @@ export const normalizeDateTime = (raw: string): string => {
   return raw;
 };
 
+export const normalizeHeader = (str: string): string => {
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+};
+
 // Parses CSV into Dynamic Records matching the active Report Schema
 export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicRecord[] => {
   if (!csvText) return [];
@@ -91,15 +99,42 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
   }
 
   // Parse header
-  const headerCols = lines[0].split(separator).map(c => cleanColumn(c).toLowerCase());
+  const headerCols = lines[0].split(separator).map(c => cleanColumn(c));
   
   // Create a mapping of colIndex -> fieldId
   const colToFieldMap: Record<number, string> = {};
   headerCols.forEach((header, index) => {
-    // Exact or fuzzy match on label or id
-    const matchedField = schema.fields.find(f => 
-      f.label.toLowerCase() === header || f.id.toLowerCase() === header
-    );
+    const normHeader = normalizeHeader(header);
+    let matchedField = schema.fields.find(f => {
+      const normLabel = normalizeHeader(f.label);
+      const normId = normalizeHeader(f.id);
+      return normHeader === normLabel || normHeader === normId ||
+             normHeader.includes(normLabel) || normLabel.includes(normHeader) ||
+             normHeader.includes(normId) || normId.includes(normHeader);
+    });
+
+    if (!matchedField) {
+      if (normHeader.includes('status') || normHeader.includes('situacao')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('status') || f.label.toLowerCase().includes('status'));
+      } else if (normHeader.includes('observa') || normHeader.includes('obs')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('observa') || f.label.toLowerCase().includes('observa'));
+      } else if (normHeader.includes('tentativa')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('tentativa') || f.label.toLowerCase().includes('tentativa'));
+      } else if (normHeader.includes('nome')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('nome') || f.label.toLowerCase().includes('nome'));
+      } else if (normHeader.includes('cpf') || normHeader.includes('doc')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('cpf') || f.label.toLowerCase().includes('cpf'));
+      } else if (normHeader.includes('fone') || normHeader.includes('tel') || normHeader.includes('cel')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('telefone') || f.label.toLowerCase().includes('telefone') || f.label.toLowerCase().includes('tel'));
+      } else if (normHeader.includes('valorsolicitado') || normHeader.includes('solicitado')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('valorsolicitado') || f.label.toLowerCase().includes('solicitado'));
+      } else if (normHeader.includes('valorliberado') || normHeader.includes('liberado')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('valorliberado') || f.label.toLowerCase().includes('liberado'));
+      } else if (normHeader.includes('base')) {
+        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('base') || f.label.toLowerCase().includes('base'));
+      }
+    }
+
     if (matchedField) {
       colToFieldMap[index] = matchedField.id;
     }
@@ -114,7 +149,7 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
     
     // Initialize defaults based on schema
     schema.fields.forEach(f => {
-      data[f.id] = (f.type === 'list' && f.options && f.options.length > 0) ? (f.options.includes("-") ? "-" : f.options[0]) : (f.readOnly ? "-" : "-");
+      data[f.id] = (f.type === 'list' && f.options && f.options.length > 0) ? (f.options.includes("-") ? "-" : f.options[0]) : "-";
     });
 
     cols.forEach((col, index) => {
@@ -132,11 +167,20 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
             const matchedOpt = fieldDef.options.find(o => o.toLowerCase() === cleaned.toLowerCase());
             if (matchedOpt) {
               cleaned = matchedOpt;
-            } else if (cleaned.toLowerCase().includes('sucesso')) {
-               if (cleaned.toLowerCase().includes('com')) cleaned = 'Com Sucesso';
-               if (cleaned.toLowerCase().includes('sem')) cleaned = 'Sem Sucesso';
-            } else if (cleaned.toLowerCase().includes('resposta')) {
-               cleaned = 'Sem Resposta';
+            } else {
+              const partialOpt = fieldDef.options.find(o => o !== '-' && cleaned.toLowerCase().includes(o.toLowerCase()));
+              if (partialOpt) {
+                cleaned = partialOpt;
+              } else if (cleaned.toLowerCase().includes('sucesso') && fieldDef.options.includes('Com Sucesso')) {
+                if (cleaned.toLowerCase().includes('com')) cleaned = 'Com Sucesso';
+                else if (cleaned.toLowerCase().includes('sem')) cleaned = 'Sem Sucesso';
+              } else if (cleaned.toLowerCase().includes('resposta') && fieldDef.options.includes('Sem Resposta')) {
+                cleaned = 'Sem Resposta';
+              } else {
+                if (!cleaned || cleaned.trim() === "") {
+                  cleaned = "-";
+                }
+              }
             }
           }
         }
