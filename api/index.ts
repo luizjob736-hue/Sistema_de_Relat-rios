@@ -2,7 +2,19 @@ import express from "express";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, inArray } from "drizzle-orm";
-import * as schema from "../src/db/schema.ts";
+import { pgTable, text, jsonb } from "drizzle-orm/pg-core";
+
+export const reportSchemas = pgTable("report_schemas", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  fields: jsonb("fields").notNull().$type<any[]>(),
+});
+
+export const dynamicRecords = pgTable("dynamic_records", {
+  id: text("id").primaryKey(),
+  reportId: text("report_id").notNull().references(() => reportSchemas.id, { onDelete: "cascade" }),
+  data: jsonb("data").notNull().$type<Record<string, any>>(),
+});
 
 let connectionString = process.env.DATABASE_URL || "";
 if (!connectionString.startsWith("postgres")) {
@@ -10,7 +22,7 @@ if (!connectionString.startsWith("postgres")) {
 }
 
 const sql = postgres(connectionString);
-const db = drizzle(sql, { schema });
+const db = drizzle(sql);
 
 // Auto-run migrations (CREATE TABLE IF NOT EXISTS) when the module loads
 async function initDb() {
@@ -41,7 +53,7 @@ app.use(express.json({ limit: '50mb' }));
 
 app.get("/api/schemas", async (req, res) => {
   try {
-    const allSchemas = await db.select().from(schema.reportSchemas);
+    const allSchemas = await db.select().from(reportSchemas);
     res.json(allSchemas);
   } catch (err) {
     console.error(err);
@@ -52,8 +64,8 @@ app.get("/api/schemas", async (req, res) => {
 app.post("/api/schemas", async (req, res) => {
   try {
     const newSchema = req.body;
-    await db.insert(schema.reportSchemas).values(newSchema)
-      .onConflictDoUpdate({ target: schema.reportSchemas.id, set: { name: newSchema.name, fields: newSchema.fields } });
+    await db.insert(reportSchemas).values(newSchema)
+      .onConflictDoUpdate({ target: reportSchemas.id, set: { name: newSchema.name, fields: newSchema.fields } });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -63,7 +75,7 @@ app.post("/api/schemas", async (req, res) => {
 
 app.get("/api/records", async (req, res) => {
   try {
-    const allRecords = await db.select().from(schema.dynamicRecords);
+    const allRecords = await db.select().from(dynamicRecords);
     res.json(allRecords);
   } catch (err) {
     console.error(err);
@@ -74,8 +86,8 @@ app.get("/api/records", async (req, res) => {
 app.post("/api/records", async (req, res) => {
   try {
     const newRecord = req.body;
-    await db.insert(schema.dynamicRecords).values(newRecord)
-      .onConflictDoUpdate({ target: schema.dynamicRecords.id, set: { data: newRecord.data, reportId: newRecord.reportId } });
+    await db.insert(dynamicRecords).values(newRecord)
+      .onConflictDoUpdate({ target: dynamicRecords.id, set: { data: newRecord.data, reportId: newRecord.reportId } });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -88,16 +100,16 @@ app.post("/api/records/bulk", async (req, res) => {
     const { records, mode, reportId } = req.body;
     
     if (mode === "overwrite") {
-      await db.delete(schema.dynamicRecords).where(eq(schema.dynamicRecords.reportId, reportId));
+      await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
     }
     
     if (records.length > 0) {
       const chunkSize = 1000;
       for (let i = 0; i < records.length; i += chunkSize) {
         const chunk = records.slice(i, i + chunkSize);
-        await db.insert(schema.dynamicRecords).values(chunk)
+        await db.insert(dynamicRecords).values(chunk)
           .onConflictDoUpdate({
-            target: schema.dynamicRecords.id,
+            target: dynamicRecords.id,
             set: { data: sql`EXCLUDED.data` }
           });
       }
@@ -136,7 +148,7 @@ app.delete("/api/records/bulk", async (req, res) => {
   try {
     const { ids } = req.body;
     if (ids && ids.length > 0) {
-      await db.delete(schema.dynamicRecords).where(inArray(schema.dynamicRecords.id, ids));
+      await db.delete(dynamicRecords).where(inArray(dynamicRecords.id, ids));
     }
     res.json({ success: true });
   } catch (err) {
