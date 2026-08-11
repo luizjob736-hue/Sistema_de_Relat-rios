@@ -110,6 +110,29 @@ export function ClientTable({
     };
   }, [records, schema]);
 
+  const observacaoBreakdown = useMemo(() => {
+    const allReportRecords = records.filter(r => r.reportId === schema.id);
+    const obsField = schema.fields.find(f => f.id.toLowerCase().includes('observa') || f.label.toLowerCase().includes('observa'));
+    
+    if (!obsField) return { counts: [], total: 0 };
+
+    const counts: Record<string, number> = {};
+    let total = 0;
+    
+    allReportRecords.forEach(r => {
+      let val = r.data[obsField.id];
+      if (!val || val === '-' || val.trim() === '') {
+        return;
+      }
+      val = val.trim();
+      counts[val] = (counts[val] || 0) + 1;
+      total++;
+    });
+
+    const sortedCounts = Object.entries(counts).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+    return { counts: sortedCounts, total };
+  }, [records, schema]);
+
   const copySummary = () => {
     const formatPct = (val: number, total: number) => {
       if (total === 0) return "0,00%";
@@ -189,28 +212,80 @@ export function ClientTable({
 
   return (
     <div className="flex flex-col h-full bg-[#E4E3E0]">
-      {/* Resumo Executivo */}
-      <div className="bg-white border-b-2 border-[#141414] p-4 flex flex-wrap gap-6 items-start justify-between shrink-0 relative">
-        <div>
-          <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] mb-2 flex items-center gap-2">
-            Resumo Executivo
-          </h3>
-          <ul className="text-[11px] font-mono text-slate-700 space-y-1">
-            <li><span className="font-bold text-[#141414]">Total da base:</span> {reportStats.totalBase.toLocaleString('pt-BR')} clientes</li>
-            <li><span className="font-bold text-[#141414]">Base trabalhada:</span> {reportStats.baseTrabalhada.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})</span></li>
-            <li><span className="font-bold text-[#141414]">Contato efetivo:</span> {reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})</span></li>
-            <li><span className="font-bold text-[#141414]">Sem contato efetivo:</span> {reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></li>
-            <li><span className="font-bold text-[#141414]">Pendências de discagem:</span> {reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></li>
-          </ul>
+      {/* Resumo Executivo / Contagem */}
+      {schema.name.toUpperCase().includes("PROPOSTAS") ? (
+        <div className="bg-white border-b-2 border-[#141414] p-4 flex flex-col gap-4 shrink-0 relative max-h-64 overflow-y-auto">
+          <div className="flex justify-between items-center sticky top-0 bg-white z-10 pb-2 border-b border-gray-200">
+             <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] flex items-center gap-2">
+               Contagem (Observação Final)
+             </h3>
+             <button
+              onClick={() => {
+                let text = "Observação Final\tQtd.\n";
+                observacaoBreakdown.counts.forEach(c => text += `${c.label}\t${c.count}\n`);
+                text += `Total Geral\t${observacaoBreakdown.total}`;
+                navigator.clipboard.writeText(text).then(() => {
+                  setCopyFeedback("Copiado!");
+                  setTimeout(() => setCopyFeedback(""), 2000);
+                });
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-[#fce4ec] border-2 border-[#880e4f] text-[#880e4f] text-[10px] font-bold uppercase hover:bg-[#880e4f] hover:text-white transition-all shadow-[2px_2px_0px_#880e4f] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
+             >
+               <ClipboardCopy size={14} />
+               {copyFeedback || "Copiar Tabela"}
+             </button>
+          </div>
+          <table className="w-full text-sm text-left font-sans">
+             <thead className="bg-[#fce4ec] text-[#880e4f] text-xs uppercase font-bold border-b border-[#f8bbd0]">
+                <tr>
+                   <th className="px-3 py-2 border-r border-white">Observação Final</th>
+                   <th className="px-3 py-2 w-24 text-right">Qtd.</th>
+                </tr>
+             </thead>
+             <tbody>
+                {observacaoBreakdown.counts.map((item, idx) => (
+                   <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="px-3 py-1.5 text-gray-800">{item.label}</td>
+                      <td className="px-3 py-1.5 text-right font-medium text-gray-900">{item.count}</td>
+                   </tr>
+                ))}
+                {observacaoBreakdown.counts.length === 0 && (
+                   <tr>
+                      <td colSpan={2} className="px-3 py-4 text-center text-gray-500 italic">Nenhum registro com observação preenchida.</td>
+                   </tr>
+                )}
+             </tbody>
+             <tfoot className="bg-[#fce4ec] text-[#880e4f] font-bold border-t-2 border-[#f48fb1]">
+                <tr>
+                   <td className="px-3 py-2 border-r border-white">Total Geral</td>
+                   <td className="px-3 py-2 text-right">{observacaoBreakdown.total}</td>
+                </tr>
+             </tfoot>
+          </table>
         </div>
-        <button
-          onClick={copySummary}
-          className="flex items-center gap-2 px-3 py-1.5 bg-[#F2F1EB] border-2 border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
-        >
-          <ClipboardCopy size={14} />
-          {copyFeedback || "Copiar Resumo"}
-        </button>
-      </div>
+      ) : (
+        <div className="bg-white border-b-2 border-[#141414] p-4 flex flex-wrap gap-6 items-start justify-between shrink-0 relative">
+          <div>
+            <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] mb-2 flex items-center gap-2">
+              Resumo Executivo
+            </h3>
+            <ul className="text-[11px] font-mono text-slate-700 space-y-1">
+              <li><span className="font-bold text-[#141414]">Total da base:</span> {reportStats.totalBase.toLocaleString('pt-BR')} clientes</li>
+              <li><span className="font-bold text-[#141414]">Base trabalhada:</span> {reportStats.baseTrabalhada.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})</span></li>
+              <li><span className="font-bold text-[#141414]">Contato efetivo:</span> {reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})</span></li>
+              <li><span className="font-bold text-[#141414]">Sem contato efetivo:</span> {reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></li>
+              <li><span className="font-bold text-[#141414]">Pendências de discagem:</span> {reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></li>
+            </ul>
+          </div>
+          <button
+            onClick={copySummary}
+            className="flex items-center gap-2 px-3 py-1.5 bg-[#F2F1EB] border-2 border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
+          >
+            <ClipboardCopy size={14} />
+            {copyFeedback || "Copiar Resumo"}
+          </button>
+        </div>
+      )}
 
       {/* Top Controls */}
       <div className="p-4 border-b-2 border-[#141414] bg-[#F2F1EB] shrink-0">
