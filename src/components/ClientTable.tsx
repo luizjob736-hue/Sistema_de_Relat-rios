@@ -466,32 +466,36 @@ export function ClientTable({
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between p-3 border-t-2 border-[#141414] bg-[#F2F1EB] shrink-0">
-          <span className="text-[10px] font-bold text-[#141414] uppercase tracking-wider">
-            Mostrando {(currentPage - 1) * rowsPerPage + 1} a {Math.min(currentPage * rowsPerPage, filteredAndSortedRecords.length)} de {filteredAndSortedRecords.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(prev => prev - 1)}
-              className="px-3 py-1 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors"
-            >
-              Anterior
-            </button>
-            <div className="px-3 py-1 text-xs font-mono font-bold bg-[#141414] text-white border-2 border-[#141414]">
-              {currentPage} / {totalPages}
-            </div>
-            <button
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage(prev => prev + 1)}
-              className="px-3 py-1 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors"
-            >
-              Próxima
-            </button>
+      <div className="flex items-center justify-between p-3 border-t-2 border-[#141414] bg-[#F2F1EB] shrink-0">
+        <span className="text-[10px] font-bold text-[#141414] uppercase tracking-wider">
+          {filteredAndSortedRecords.length > 0 ? (
+            <>Mostrando {(currentPage - 1) * rowsPerPage + 1} a {Math.min(currentPage * rowsPerPage, filteredAndSortedRecords.length)} de {filteredAndSortedRecords.length}</>
+          ) : (
+            <>Nenhum registro</>
+          )}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={currentPage <= 1}
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            className="px-3 py-1 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
+          >
+            Anterior
+          </button>
+          <div className="px-3 py-1 text-xs font-mono font-bold bg-[#141414] text-white border-2 border-[#141414]">
+            {currentPage} / {Math.max(1, totalPages)}
           </div>
+          <button
+            type="button"
+            disabled={currentPage >= totalPages || totalPages === 0}
+            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            className="px-3 py-1 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
+          >
+            Próxima
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
