@@ -137,6 +137,8 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
 
     if (matchedField) {
       colToFieldMap[index] = matchedField.id;
+    } else if (schema.fields[index]) {
+      colToFieldMap[index] = schema.fields[index].id;
     }
   });
 
