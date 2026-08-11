@@ -26,6 +26,10 @@ export function ClientTable({
   const [copyFeedback, setCopyFeedback] = useState("");
   const rowsPerPage = 50;
 
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [schema.id, searchTerm]);
+
   const [bulkEdits, setBulkEdits] = useState<Record<string, string>>({});
 
   const handleSort = (fieldId: string) => {
