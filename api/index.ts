@@ -73,6 +73,17 @@ app.post("/api/schemas", async (req, res) => {
   }
 });
 
+app.delete("/api/schemas/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.delete(reportSchemas).where(eq(reportSchemas.id, id));
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete schema" });
+  }
+});
+
 app.get("/api/records", async (req, res) => {
   try {
     const allRecords = await db.select().from(dynamicRecords);

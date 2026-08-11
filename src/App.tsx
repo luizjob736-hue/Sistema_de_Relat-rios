@@ -306,12 +306,20 @@ function App() {
                   <Copy size={12} />
                 </button>
                 <button
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"?`)) {
-                      setSchemas(schemas.filter(s => s.id !== schema.id));
-                      if (activeSchemaId === schema.id) setActiveSchemaId(schemas[0]?.id || '');
-                      showToast(`Guia "${schema.name}" removida.`);
+                    if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"? Todas as planilhas dentro dela serão apagadas.`)) {
+                      try {
+                        await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
+                        setSchemas(schemas.filter(s => s.id !== schema.id));
+                        if (activeSchemaId === schema.id) {
+                          const remainingSchemas = schemas.filter(s => s.id !== schema.id);
+                          setActiveSchemaId(remainingSchemas.length > 0 ? remainingSchemas[0].id : '');
+                        }
+                        showToast(`Guia "${schema.name}" removida.`);
+                      } catch (err) {
+                        showToast("Erro ao excluir guia.");
+                      }
                     }
                   }}
                   className="hover:text-red-600 transition-colors"
