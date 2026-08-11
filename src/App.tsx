@@ -189,14 +189,15 @@ function App() {
     }
   };
 
-  const handleImport = async (newRecords: DynamicRecord[], overwrite: boolean) => {
+  const handleImport = async (newRecords: DynamicRecord[], mode: "append" | "overwrite") => {
     if (userRole !== 'admin') {
       showToast("Acesso negado: Apenas administradores podem importar dados.");
       return;
     }
+    const isOverwrite = mode === "overwrite";
     let finalRecordsToSave: DynamicRecord[] = [];
     
-    if (overwrite) {
+    if (isOverwrite) {
       const remaining = records.filter(r => r.reportId !== activeSchema.id);
       setRecords([...remaining, ...newRecords]);
       finalRecordsToSave = newRecords;
@@ -260,9 +261,9 @@ function App() {
       await fetch("/api/records/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records: finalRecordsToSave, mode: overwrite ? "overwrite" : "append", reportId: activeSchema.id }),
+        body: JSON.stringify({ records: finalRecordsToSave, mode: isOverwrite ? "overwrite" : "append", reportId: activeSchema.id }),
       });
-      if (overwrite) showToast(`${newRecords.length} registros importados. Banco substituído!`);
+      if (isOverwrite) showToast(`${newRecords.length} registros importados. Banco substituído!`);
     } catch (err) {
       showToast("Erro de conexão ao salvar base importada.");
     }
