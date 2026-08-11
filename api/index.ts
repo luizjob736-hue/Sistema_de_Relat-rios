@@ -16,6 +16,13 @@ export const dynamicRecords = pgTable("dynamic_records", {
   data: jsonb("data").notNull().$type<Record<string, any>>(),
 });
 
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  password: text("password").notNull(),
+  role: text("role").notNull(),
+});
+
 let connectionString = process.env.DATABASE_URL || "";
 if (!connectionString.startsWith("postgres")) {
   connectionString = "postgresql://neondb_owner:npg_EUvOxA3yk1za@ep-little-cell-ac1uvd3q-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
@@ -41,6 +48,23 @@ async function initDb() {
         data JSONB NOT NULL
       );
     `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL
+      );
+    `;
+
+    const existingUsers = await sql`SELECT count(*) FROM users`;
+    if (parseInt(existingUsers[0].count) === 0) {
+      await sql`INSERT INTO users (id, username, password, role) VALUES ('admin-1', 'Admin', 'Proativa_*2026', 'admin') ON CONFLICT (username) DO NOTHING`;
+      for (let i = 1; i <= 15; i++) {
+        await sql`INSERT INTO users (id, username, password, role) VALUES (${`op-${i}`}, ${`Operador ${i}`}, '123456', 'editor') ON CONFLICT (username) DO NOTHING`;
+      }
+    }
+
     console.log("Database tables verified/created.");
   } catch (err) {
     console.error("Migration error:", err);
@@ -50,6 +74,60 @@ initDb();
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
+
+// Auth Login
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const found = await db.select().from(users).where(eq(users.username, username));
+    if (found.length === 0) {
+      return res.status(401).json({ error: "Usuário não encontrado" });
+    }
+    const user = found[0];
+    if (user.password !== password) {
+      return res.status(401).json({ error: "Senha incorreta" });
+    }
+    res.json({ success: true, username: user.username, role: user.role });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro no login" });
+  }
+});
+
+// Users Management
+app.get("/api/users", async (req, res) => {
+  try {
+    const allUsers = await db.select().from(users);
+    res.json(allUsers);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+app.post("/api/users", async (req, res) => {
+  try {
+    const { id, username, password, role } = req.body;
+    const userId = id || `user-${Date.now()}`;
+    await db.insert(users).values({ id: userId, username, password, role })
+      .onConflictDoUpdate({ target: users.username, set: { password, role } });
+    res.json({ success: true, id: userId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to save user" });
+  }
+});
+
+app.delete("/api/users/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.delete(users).where(eq(users.id, id));
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
 
 app.get("/api/schemas", async (req, res) => {
   try {

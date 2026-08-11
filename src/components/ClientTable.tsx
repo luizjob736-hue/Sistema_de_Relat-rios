@@ -85,9 +85,17 @@ export function ClientTable({
         
         let isContato = false;
         
-        if (obsValue && !obsValue.includes('sem contato')) {
-           isContato = true;
-        } else if (statusValue.includes('com sucesso')) {
+        // Contato efetivo: positive progress outcomes or explicit success status
+        const positiveKeywords = [
+          "finalizada/paga",
+          "documentação apresentada",
+          "link de formalização reenviado",
+          "dados bancários corrigidos",
+          "orientado voltar na jornada",
+          "com sucesso"
+        ];
+
+        if (positiveKeywords.some(kw => obsValue.includes(kw) || statusValue.includes(kw))) {
            isContato = true;
         }
         

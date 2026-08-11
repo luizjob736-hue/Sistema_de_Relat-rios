@@ -1,18 +1,28 @@
 import React, { useState, useEffect } from "react";
-import { Users, Upload, LayoutGrid, Plus, Copy, Trash2 } from "lucide-react";
+import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ClientTable } from "./components/ClientTable";
 import { SchemaBuilderModal } from "./components/SchemaBuilderModal";
+import { LoginScreen } from "./components/LoginScreen";
+import { UserManagementModal } from "./components/UserManagementModal";
 import { DynamicRecord, ReportSchema, defaultSchema } from "./types";
 import { getFallbackRecords } from "./utils";
 
 function App() {
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    return sessionStorage.getItem("crm_current_user");
+  });
+  const [userRole, setUserRole] = useState<'admin' | 'editor' | null>(() => {
+    return sessionStorage.getItem("crm_user_role") as ('admin' | 'editor' | null);
+  });
+
   const [schemas, setSchemas] = useState<ReportSchema[]>([]);
   const [activeSchemaId, setActiveSchemaId] = useState<string>('');
   const [records, setRecords] = useState<DynamicRecord[]>([]);
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [editingSchema, setEditingSchema] = useState<ReportSchema | undefined>();
   const [isLoading, setIsLoading] = useState(true);
 
@@ -23,7 +33,25 @@ function App() {
     setTimeout(() => setToastMessage(""), 4000);
   };
 
+  const handleLogin = (username: string, role: 'admin' | 'editor') => {
+    setCurrentUser(username);
+    setUserRole(role);
+    sessionStorage.setItem("crm_current_user", username);
+    sessionStorage.setItem("crm_user_role", role);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setUserRole(null);
+    sessionStorage.removeItem("crm_current_user");
+    sessionStorage.removeItem("crm_user_role");
+  };
+
   useEffect(() => {
+    if (!currentUser) {
+      setIsLoading(false);
+      return;
+    }
     const fetchData = async () => {
       try {
         const [schemasRes, recordsRes] = await Promise.all([
@@ -67,11 +95,19 @@ function App() {
       }
     };
     fetchData();
-  }, []);
+  }, [currentUser]);
+
+  if (!currentUser) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
 
   const activeSchema = schemas.find(s => s.id === activeSchemaId) || schemas[0];
 
   const handleSaveSchema = async (schema: ReportSchema) => {
+    if (userRole !== 'admin') {
+      showToast("Acesso negado: Apenas administradores podem gerenciar guias.");
+      return;
+    }
     try {
       await fetch("/api/schemas", {
         method: "POST",
@@ -154,6 +190,10 @@ function App() {
   };
 
   const handleImport = async (newRecords: DynamicRecord[], overwrite: boolean) => {
+    if (userRole !== 'admin') {
+      showToast("Acesso negado: Apenas administradores podem importar dados.");
+      return;
+    }
     let finalRecordsToSave: DynamicRecord[] = [];
     
     if (overwrite) {
@@ -251,7 +291,12 @@ function App() {
               <Users size={20} />
             </div>
             <div>
-              <h1 className="text-xl font-black uppercase tracking-tighter">Sistema de Relatórios</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black uppercase tracking-tighter">Sistema de Relatórios</h1>
+                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 border border-[#141414] uppercase ${userRole === 'admin' ? 'bg-[#141414] text-white' : 'bg-slate-200 text-slate-800'}`}>
+                  {userRole === 'admin' ? 'Admin' : 'Operador'} : {currentUser}
+                </span>
+              </div>
               <p className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest">
                 Gestão Dinâmica Multibases
               </p>
@@ -259,20 +304,37 @@ function App() {
           </div>
           
           <div className="flex items-center gap-3">
+            {userRole === 'admin' && (
+              <>
+                <button
+                  onClick={() => setIsUserManagementOpen(true)}
+                  className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                >
+                  <Shield size={16} /> Acessos
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingSchema(activeSchema);
+                    setIsSchemaModalOpen(true);
+                  }}
+                  className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                >
+                  <LayoutGrid size={16} /> Configurar Guia Atual
+                </button>
+                <button
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="flex items-center gap-2 bg-[#141414] text-white border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-black transition-all shadow-[4px_4px_0px_#C5C4C0] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                >
+                  <Upload size={16} /> Importar Dados
+                </button>
+              </>
+            )}
             <button
-              onClick={() => {
-                setEditingSchema(activeSchema);
-                setIsSchemaModalOpen(true);
-              }}
-              className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+              onClick={handleLogout}
+              title="Sair do sistema"
+              className="flex items-center gap-2 bg-red-100 border-2 border-[#141414] text-red-700 px-3 py-2 text-xs font-bold uppercase hover:bg-red-200 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
             >
-              <LayoutGrid size={16} /> Configurar Guia Atual
-            </button>
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-2 bg-[#141414] text-white border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-black transition-all shadow-[4px_4px_0px_#C5C4C0] active:translate-y-1 active:translate-x-1 active:shadow-none"
-            >
-              <Upload size={16} /> Importar Dados
+              <LogOut size={16} /> Sair
             </button>
           </div>
         </div>
@@ -291,53 +353,59 @@ function App() {
                 {schema.name}
               </button>
               
-              <div className="flex gap-1 pr-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const name = prompt("Novo nome da guia:");
-                    if (name) {
-                      const newSchema = { ...schema, id: Date.now().toString(), name };
-                      handleSaveSchema(newSchema);
-                    }
-                  }}
-                  className="hover:text-black transition-colors"
-                >
-                  <Copy size={12} />
-                </button>
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"? Todas as planilhas dentro dela serão apagadas.`)) {
-                      try {
-                        await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
-                        setSchemas(schemas.filter(s => s.id !== schema.id));
-                        if (activeSchemaId === schema.id) {
-                          const remainingSchemas = schemas.filter(s => s.id !== schema.id);
-                          setActiveSchemaId(remainingSchemas.length > 0 ? remainingSchemas[0].id : '');
-                        }
-                        showToast(`Guia "${schema.name}" removida.`);
-                      } catch (err) {
-                        showToast("Erro ao excluir guia.");
+              {userRole === 'admin' && (
+                <div className="flex gap-1 pr-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const name = prompt("Novo nome da guia:");
+                      if (name) {
+                        const newSchema = { ...schema, id: Date.now().toString(), name };
+                        handleSaveSchema(newSchema);
                       }
-                    }
-                  }}
-                  className="hover:text-red-600 transition-colors"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
+                    }}
+                    title="Duplicar Guia"
+                    className="hover:text-black transition-colors"
+                  >
+                    <Copy size={12} />
+                  </button>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"? Todas as planilhas dentro dela serão apagadas.`)) {
+                        try {
+                          await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
+                          setSchemas(schemas.filter(s => s.id !== schema.id));
+                          if (activeSchemaId === schema.id) {
+                            const remainingSchemas = schemas.filter(s => s.id !== schema.id);
+                            setActiveSchemaId(remainingSchemas.length > 0 ? remainingSchemas[0].id : '');
+                          }
+                          showToast(`Guia "${schema.name}" removida.`);
+                        } catch (err) {
+                          showToast("Erro ao excluir guia.");
+                        }
+                      }
+                    }}
+                    title="Apagar Guia"
+                    className="hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
-          <button
-            onClick={() => {
-              setEditingSchema(undefined);
-              setIsSchemaModalOpen(true);
-            }}
-            className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[#141414] border-2 border-transparent hover:border-[#141414] transition-colors rounded-t-sm mb-[2px] flex items-center gap-1"
-          >
-            <Plus size={14} /> Nova Guia
-          </button>
+          {userRole === 'admin' && (
+            <button
+              onClick={() => {
+                setEditingSchema(undefined);
+                setIsSchemaModalOpen(true);
+              }}
+              className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[#141414] border-2 border-transparent hover:border-[#141414] transition-colors rounded-t-sm mb-[2px] flex items-center gap-1"
+            >
+              <Plus size={14} /> Nova Guia
+            </button>
+          )}
         </div>
       </header>
 
@@ -350,13 +418,13 @@ function App() {
               records={records}
               onUpdateRecord={handleUpdateRecord}
               onUpdateRecordsBulk={handleUpdateRecordsBulk}
-              onDeleteRecords={handleDeleteRecords}
+              onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
             />
           )}
         </section>
       </main>
 
-      {isImportModalOpen && activeSchema && (
+      {isImportModalOpen && activeSchema && userRole === 'admin' && (
         <ImportModal
           isOpen={isImportModalOpen}
           onClose={() => setIsImportModalOpen(false)}
@@ -365,11 +433,19 @@ function App() {
         />
       )}
 
-      {isSchemaModalOpen && (
+      {isSchemaModalOpen && userRole === 'admin' && (
         <SchemaBuilderModal
           onClose={() => setIsSchemaModalOpen(false)}
           onSave={handleSaveSchema}
           initialSchema={editingSchema}
+        />
+      )}
+
+      {isUserManagementOpen && userRole === 'admin' && (
+        <UserManagementModal
+          isOpen={isUserManagementOpen}
+          onClose={() => setIsUserManagementOpen(false)}
+          showToast={showToast}
         />
       )}
     </div>
