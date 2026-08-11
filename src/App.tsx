@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Users, Upload, LayoutGrid, Plus } from "lucide-react";
+import { Users, Upload, LayoutGrid, Plus, Copy, Trash2 } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ClientTable } from "./components/ClientTable";
 import { SchemaBuilderModal } from "./components/SchemaBuilderModal";
@@ -280,16 +280,46 @@ function App() {
         {/* Tabs Bar */}
         <div className="px-6 flex items-center gap-2 bg-[#E4E3E0] pt-2 overflow-x-auto hide-scrollbar border-t-2 border-[#141414]">
           {schemas.map(schema => (
-            <button
-              key={schema.id}
-              onClick={() => setActiveSchemaId(schema.id)}
-              className={`px-4 py-2 text-[10px] font-black uppercase tracking-wider border-2 border-b-0 border-[#141414] transition-colors rounded-t-sm whitespace-nowrap
-                ${activeSchemaId === schema.id 
-                  ? "bg-white text-[#141414] shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] pt-3" 
-                  : "bg-[#C5C4C0] text-[#141414]/60 hover:bg-[#D1D0CC]"}`}
-            >
-              {schema.name}
-            </button>
+            <div key={schema.id} className={`flex items-center border-2 border-b-0 border-[#141414] rounded-t-sm whitespace-nowrap transition-colors
+                  ${activeSchemaId === schema.id 
+                    ? "bg-white text-[#141414] shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] pt-3" 
+                    : "bg-[#C5C4C0] text-[#141414]/60 hover:bg-[#D1D0CC]"}`}>
+              <button
+                onClick={() => setActiveSchemaId(schema.id)}
+                className="pl-4 pr-1 py-2 text-[10px] font-black uppercase tracking-wider"
+              >
+                {schema.name}
+              </button>
+              
+              <div className="flex gap-1 pr-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const name = prompt("Novo nome da guia:");
+                    if (name) {
+                      const newSchema = { ...schema, id: Date.now().toString(), name };
+                      handleSaveSchema(newSchema);
+                    }
+                  }}
+                  className="hover:text-black transition-colors"
+                >
+                  <Copy size={12} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"?`)) {
+                      setSchemas(schemas.filter(s => s.id !== schema.id));
+                      if (activeSchemaId === schema.id) setActiveSchemaId(schemas[0]?.id || '');
+                      showToast(`Guia "${schema.name}" removida.`);
+                    }
+                  }}
+                  className="hover:text-red-600 transition-colors"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
           ))}
           <button
             onClick={() => {
