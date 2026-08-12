@@ -328,6 +328,23 @@ function App() {
                 >
                   <Upload size={16} /> Importar Dados
                 </button>
+                <button
+                  onClick={async () => {
+                    if (confirm(`Tem certeza que deseja apagar todos os registros da base "${activeSchema.name}"?`)) {
+                      try {
+                        await fetch(`/api/records/report/${activeSchema.id}`, { method: 'DELETE' });
+                        setRecords(prev => prev.filter(r => r.reportId !== activeSchema.id));
+                        showToast(`Base "${activeSchema.name}" limpa com sucesso.`);
+                      } catch (err) {
+                        showToast("Erro ao limpar base.");
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 bg-red-100 border-2 border-[#141414] text-red-800 px-4 py-2 text-xs font-bold uppercase hover:bg-red-200 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                  title="Apagar todos os registros desta base"
+                >
+                  <Trash2 size={16} /> Apagar Base
+                </button>
               </>
             )}
             <button

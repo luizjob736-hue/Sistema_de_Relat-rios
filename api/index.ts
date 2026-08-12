@@ -246,4 +246,15 @@ app.delete("/api/records/bulk", async (req, res) => {
   }
 });
 
+app.delete("/api/records/report/:reportId", async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to clear report records" });
+  }
+});
+
 export default app;
