@@ -143,11 +143,6 @@ function App() {
 
         if (cleanSchemas.length === 0) {
           cleanSchemas.push(defaultSchema);
-          fetch("/api/schemas", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(defaultSchema),
-          }).catch(console.error);
         }
 
         setSchemas(cleanSchemas);
