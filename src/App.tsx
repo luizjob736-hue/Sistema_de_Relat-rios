@@ -95,23 +95,49 @@ function App() {
           try {
             const parsedSchemas = JSON.parse(localSchemasBackup);
             if (Array.isArray(parsedSchemas) && parsedSchemas.length > 0) {
-              const existingIds = new Set(s.map((sch: ReportSchema) => sch.id));
               parsedSchemas.forEach((ls: ReportSchema) => {
-                if (ls && ls.id && !existingIds.has(ls.id)) {
+                if (ls && ls.id && ls.name) {
                   s.push(ls);
-                  fetch("/api/schemas", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(ls)
-                  }).catch(console.error);
                 }
               });
             }
           } catch (e) {}
         }
 
-        if (!s || s.length === 0) {
-          s = [defaultSchema];
+        // Deduplicate schemas by ID and normalized Name
+        const cleanSchemas: ReportSchema[] = [];
+        const seenIds = new Set<string>();
+        const seenNames = new Map<string, string>(); // normName -> canonicalId
+        const idRemap: Record<string, string> = {}; // oldId -> canonicalId
+
+        (s || []).forEach((sch) => {
+          if (!sch || !sch.name) return;
+          let sId = sch.id === '1' ? 'default' : sch.id;
+          const normName = sch.name.trim().toLowerCase();
+
+          if (seenNames.has(normName)) {
+            const canonicalId = seenNames.get(normName)!;
+            idRemap[sch.id] = canonicalId;
+            return;
+          }
+
+          if (seenIds.has(sId)) {
+            return;
+          }
+
+          const canonicalSchema = { ...sch, id: sId };
+          cleanSchemas.push(canonicalSchema);
+          seenIds.add(sId);
+          if (sch.id !== sId) {
+            idRemap[sch.id] = sId;
+          }
+          if (normName) {
+            seenNames.set(normName, sId);
+          }
+        });
+
+        if (cleanSchemas.length === 0) {
+          cleanSchemas.push(defaultSchema);
           fetch("/api/schemas", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -119,16 +145,17 @@ function App() {
           }).catch(console.error);
         }
 
-        setSchemas(s);
+        setSchemas(cleanSchemas);
         try {
-          localStorage.setItem("crm_schemas_backup", JSON.stringify(s));
+          localStorage.setItem("crm_schemas_backup", JSON.stringify(cleanSchemas));
         } catch (e) {}
 
         const savedActiveTab = localStorage.getItem("crm_active_tab");
-        if (savedActiveTab && s.some((sch: ReportSchema) => sch.id === savedActiveTab)) {
-          setActiveSchemaId(savedActiveTab);
+        const canonicalActiveTab = savedActiveTab && idRemap[savedActiveTab] ? idRemap[savedActiveTab] : savedActiveTab;
+        if (canonicalActiveTab && cleanSchemas.some((sch: ReportSchema) => sch.id === canonicalActiveTab)) {
+          setActiveSchemaId(canonicalActiveTab);
         } else {
-          setActiveSchemaId(s[0].id);
+          setActiveSchemaId(cleanSchemas[0].id);
         }
 
         // 2. Merge server records and local records so records in custom tabs (e.g. Propostas) are never wiped out
@@ -146,15 +173,26 @@ function App() {
         const recordMap = new Map<string, DynamicRecord>();
         (r || []).forEach((rec) => {
           if (rec && rec.id) {
-            recordMap.set(rec.id, rec);
+            let recReportId = rec.reportId || 'default';
+            if (idRemap[recReportId]) {
+              recReportId = idRemap[recReportId];
+            }
+            recordMap.set(rec.id, { ...rec, reportId: recReportId });
           }
         });
 
         const missingOnServer: DynamicRecord[] = [];
         localRecords.forEach((localRec) => {
-          if (localRec && localRec.id && !recordMap.has(localRec.id)) {
-            recordMap.set(localRec.id, localRec);
-            missingOnServer.push(localRec);
+          if (localRec && localRec.id) {
+            let recReportId = localRec.reportId || 'default';
+            if (idRemap[recReportId]) {
+              recReportId = idRemap[recReportId];
+            }
+            const cleanLocalRec = { ...localRec, reportId: recReportId };
+            if (!recordMap.has(localRec.id)) {
+              recordMap.set(localRec.id, cleanLocalRec);
+              missingOnServer.push(cleanLocalRec);
+            }
           }
         });
 
@@ -207,20 +245,33 @@ function App() {
       return;
     }
     try {
+      const normName = schema.name.trim().toLowerCase();
+      // Check if schema exists by ID or by Name
+      const existing = schemas.find(s => s.id === schema.id || s.name.trim().toLowerCase() === normName);
+      const targetId = existing ? existing.id : schema.id;
+      const finalSchema = { ...schema, id: targetId };
+
       await fetch("/api/schemas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(schema),
+        body: JSON.stringify(finalSchema),
       });
 
-      const isUpdate = schemas.some(s => s.id === schema.id);
-      if (isUpdate) {
-        setSchemas(schemas.map(s => s.id === schema.id ? schema : s));
-        showToast(`Relatório "${schema.name}" atualizado.`);
+      if (existing) {
+        const updatedSchemas = schemas.map(s => s.id === existing.id ? finalSchema : s);
+        setSchemas(updatedSchemas);
+        try {
+          localStorage.setItem("crm_schemas_backup", JSON.stringify(updatedSchemas));
+        } catch (e) {}
+        showToast(`Relatório "${finalSchema.name}" atualizado.`);
       } else {
-        setSchemas([...schemas, schema]);
-        setActiveSchemaId(schema.id);
-        showToast(`Relatório "${schema.name}" criado.`);
+        const updatedSchemas = [...schemas, finalSchema];
+        setSchemas(updatedSchemas);
+        try {
+          localStorage.setItem("crm_schemas_backup", JSON.stringify(updatedSchemas));
+        } catch (e) {}
+        setActiveSchemaId(finalSchema.id);
+        showToast(`Relatório "${finalSchema.name}" criado.`);
       }
       setIsSchemaModalOpen(false);
       setEditingSchema(undefined);
@@ -493,9 +544,10 @@ function App() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      const name = prompt("Novo nome da guia:");
-                      if (name) {
-                        const newSchema = { ...schema, id: Date.now().toString(), name };
+                      const defaultNewName = `${schema.name} (Cópia)`;
+                      const name = prompt("Novo nome para a cópia da guia:", defaultNewName);
+                      if (name && name.trim()) {
+                        const newSchema = { ...schema, id: `report_${Date.now()}`, name: name.trim() };
                         handleSaveSchema(newSchema);
                       }
                     }}

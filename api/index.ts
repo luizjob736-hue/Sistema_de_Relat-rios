@@ -76,11 +76,32 @@ async function initDb() {
       VALUES ('default', 'Relatório Padrão', ${JSON.stringify(defaultSchemaFields)}::jsonb)
       ON CONFLICT (id) DO NOTHING
     `;
-    await sql`
-      INSERT INTO report_schemas (id, name, fields)
-      VALUES ('1', 'Relatório Padrão', ${JSON.stringify(defaultSchemaFields)}::jsonb)
-      ON CONFLICT (id) DO NOTHING
-    `;
+    
+    // Clean up legacy schema '1' if present and migrate its records to 'default'
+    try {
+      await sql`UPDATE dynamic_records SET report_id = 'default' WHERE report_id = '1'`;
+      await sql`DELETE FROM report_schemas WHERE id = '1'`;
+    } catch (e) {}
+
+    // Clean up any duplicate schemas in report_schemas table by name
+    try {
+      const existingSchemas = await sql`SELECT id, name FROM report_schemas`;
+      const seenNames = new Map<string, string>(); // nameLower -> id
+      for (const s of existingSchemas) {
+        const norm = (s.name || "").trim().toLowerCase();
+        if (!norm) continue;
+        if (seenNames.has(norm)) {
+          const keepId = seenNames.get(norm)!;
+          const removeId = s.id;
+          if (removeId !== keepId) {
+            await sql`UPDATE dynamic_records SET report_id = ${keepId} WHERE report_id = ${removeId}`;
+            await sql`DELETE FROM report_schemas WHERE id = ${removeId}`;
+          }
+        } else {
+          seenNames.set(norm, s.id);
+        }
+      }
+    } catch (e) {}
 
     const existingUsers = await sql`SELECT count(*) FROM users`;
     if (parseInt(existingUsers[0].count) === 0) {
@@ -161,7 +182,27 @@ app.delete("/api/users/:id", async (req, res) => {
 app.get("/api/schemas", async (req, res) => {
   try {
     const allSchemas = await db.select().from(reportSchemas);
-    res.json(allSchemas);
+    const uniqueSchemas: typeof allSchemas = [];
+    const seenIds = new Set<string>();
+    const seenNames = new Map<string, string>(); // normName -> id
+
+    for (const schema of allSchemas) {
+      if (!schema || !schema.id) continue;
+      const sId = schema.id === '1' ? 'default' : schema.id;
+      const normName = (schema.name || "").trim().toLowerCase();
+
+      if (seenNames.has(normName) || seenIds.has(sId)) {
+        continue;
+      }
+
+      uniqueSchemas.push({ ...schema, id: sId });
+      seenIds.add(sId);
+      if (normName) {
+        seenNames.set(normName, sId);
+      }
+    }
+
+    res.json(uniqueSchemas);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch schemas" });
@@ -171,14 +212,26 @@ app.get("/api/schemas", async (req, res) => {
 app.post("/api/schemas", async (req, res) => {
   try {
     const newSchema = req.body;
+    if (!newSchema || !newSchema.name) {
+      return res.status(400).json({ error: "Invalid schema payload" });
+    }
+    const schemaId = (!newSchema.id || newSchema.id === '1') ? 'default' : newSchema.id;
+    const normName = newSchema.name.trim().toLowerCase();
+
+    // Check if a schema with this name already exists under another ID
+    const existingByName = await sql`
+      SELECT id FROM report_schemas WHERE LOWER(TRIM(name)) = ${normName}
+    `;
+    const targetId = existingByName.length > 0 ? existingByName[0].id : schemaId;
+
     await sql`
       INSERT INTO report_schemas (id, name, fields)
-      VALUES (${newSchema.id}, ${newSchema.name}, ${JSON.stringify(newSchema.fields)}::jsonb)
+      VALUES (${targetId}, ${newSchema.name}, ${JSON.stringify(newSchema.fields || [])}::jsonb)
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         fields = EXCLUDED.fields
     `;
-    res.json({ success: true });
+    res.json({ success: true, id: targetId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save schema" });
