@@ -211,10 +211,10 @@ function App() {
 
     fetchData(false);
 
-    // Auto-polling every 5 seconds for real-time updates across browsers/tabs
+    // Auto-polling every 1 hour for background updates across browsers/tabs
     const pollInterval = setInterval(() => {
       fetchData(true);
-    }, 5000);
+    }, 3600000);
 
     const handleFocus = () => {
       fetchData(true);
