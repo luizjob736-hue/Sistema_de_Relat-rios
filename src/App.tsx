@@ -139,7 +139,7 @@ function App() {
         if (canonicalActiveTab && cleanSchemas.some((sch: ReportSchema) => sch.id === canonicalActiveTab)) {
           setActiveSchemaId(canonicalActiveTab);
         } else if (!isBackground) {
-          setActiveSchemaId(cleanSchemas[0].id);
+          setActiveSchemaId(cleanSchemas[0]?.id || '');
         }
 
         // 2. Set server records as authoritative and sync local backup
@@ -305,6 +305,7 @@ function App() {
   };
 
   const handleImport = async (newRecords: DynamicRecord[], mode: "append" | "overwrite") => {
+    if (!activeSchema) return;
     if (userRole !== 'admin') {
       showToast("Acesso negado: Apenas administradores podem importar dados.");
       return;
@@ -533,6 +534,7 @@ function App() {
                 </button>
                 <button
                   onClick={async () => {
+                    if (!activeSchema) return;
                     if (confirm(`Tem certeza que deseja apagar todos os registros da base "${activeSchema.name}"?`)) {
                       try {
                         showToast(`Apagando base "${activeSchema.name}"... aguarde.`);
