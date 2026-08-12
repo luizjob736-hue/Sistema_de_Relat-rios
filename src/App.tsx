@@ -625,11 +625,16 @@ function App() {
                       if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"? Todas as planilhas dentro dela serão apagadas.`)) {
                         try {
                           await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
+                          
+                          // Server-side deleted, now update local state
                           setSchemas(schemas.filter(s => s.id !== schema.id));
                           if (activeSchemaId === schema.id) {
                             const remainingSchemas = schemas.filter(s => s.id !== schema.id);
                             setActiveSchemaId(remainingSchemas.length > 0 ? remainingSchemas[0].id : '');
                           }
+                          // Also remove associated records from local state
+                          setRecords(prev => prev.filter(r => r.reportId !== schema.id));
+                          
                           showToast(`Guia "${schema.name}" removida.`);
                         } catch (err) {
                           showToast("Erro ao excluir guia.");
