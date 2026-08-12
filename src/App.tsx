@@ -48,6 +48,16 @@ function App() {
   };
 
   useEffect(() => {
+    if (records && records.length > 0) {
+      try {
+        localStorage.setItem("crm_records_backup", JSON.stringify(records));
+      } catch (e) {
+        console.error("localStorage backup error", e);
+      }
+    }
+  }, [records]);
+
+  useEffect(() => {
     if (!currentUser) {
       setIsLoading(false);
       return;
@@ -58,10 +68,30 @@ function App() {
           fetch("/api/schemas"),
           fetch("/api/records")
         ]);
-        const s = await schemasRes.json();
-        const r = await recordsRes.json();
+        
+        let s = schemasRes.ok ? await schemasRes.json() : [];
+        let r = recordsRes.ok ? await recordsRes.json() : [];
 
-        if (s.length === 0) {
+        // Check local backup if server returned empty
+        if (!r || r.length === 0) {
+          const localBackup = localStorage.getItem("crm_records_backup");
+          if (localBackup) {
+            try {
+              const parsedBackup = JSON.parse(localBackup);
+              if (Array.isArray(parsedBackup) && parsedBackup.length > 0) {
+                r = parsedBackup;
+                // Sync back to backend in background
+                fetch("/api/records/bulk", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ records: r, mode: "append", reportId: defaultSchema.id })
+                }).catch(console.error);
+              }
+            } catch (e) {}
+          }
+        }
+
+        if (!s || s.length === 0) {
           await fetch("/api/schemas", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -74,7 +104,7 @@ function App() {
           setActiveSchemaId(s[0].id);
         }
 
-        if (r.length === 0 && s.length === 0) {
+        if ((!r || r.length === 0) && (!s || s.length === 0)) {
            const fallbacks = getFallbackRecords();
            setRecords(fallbacks);
            if (fallbacks.length > 0) {
@@ -85,11 +115,17 @@ function App() {
              });
            }
         } else {
-          setRecords(r);
+          setRecords(r || []);
         }
       } catch (err) {
         console.error("Failed to load data", err);
-        showToast("Erro de conexão com o banco de dados.");
+        const localBackup = localStorage.getItem("crm_records_backup");
+        if (localBackup) {
+          try {
+            setRecords(JSON.parse(localBackup));
+          } catch (e) {}
+        }
+        showToast("Conectando ao banco de dados...");
       } finally {
         setIsLoading(false);
       }
@@ -348,7 +384,11 @@ function App() {
                     if (confirm(`Tem certeza que deseja apagar todos os registros da base "${activeSchema.name}"?`)) {
                       try {
                         await fetch(`/api/records/report/${activeSchema.id}`, { method: 'DELETE' });
-                        setRecords(prev => prev.filter(r => r.reportId !== activeSchema.id));
+                        setRecords(prev => {
+                          const remaining = prev.filter(r => r.reportId !== activeSchema.id);
+                          localStorage.setItem("crm_records_backup", JSON.stringify(remaining));
+                          return remaining;
+                        });
                         showToast(`Base "${activeSchema.name}" limpa com sucesso.`);
                       } catch (err) {
                         showToast("Erro ao limpar base.");

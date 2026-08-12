@@ -57,6 +57,31 @@ async function initDb() {
       );
     `;
 
+    // Ensure default schema exists in report_schemas
+    const defaultSchemaFields = [
+      { id: 'nomeBase', label: 'Base', type: 'text', readOnly: true },
+      { id: 'nome', label: 'Nome', type: 'text', readOnly: true },
+      { id: 'cpf', label: 'CPF', type: 'text', readOnly: true },
+      { id: 'email', label: 'E-mail', type: 'text', readOnly: true },
+      { id: 'telefone', label: 'Telefone', type: 'text', readOnly: true },
+      { id: 'valorSolicitado', label: 'Valor Solicitado', type: 'text', readOnly: true },
+      { id: 'valorLiberado', label: 'Valor Liberado', type: 'text', readOnly: true },
+      { id: 'tentativa1', label: 'Tentativa 1', type: 'text', readOnly: false },
+      { id: 'status', label: 'Status', type: 'list', options: ['-', 'Com Sucesso', 'Sem Resposta', 'Sem Sucesso'], readOnly: false },
+      { id: 'observacaoFinal', label: 'Observação final', type: 'list', options: ['-', 'Cliente informa que desconto foi realizado', 'Cliente informa que desconto não foi realizado', 'Sem contato com o cliente'], readOnly: false }
+    ];
+
+    await sql`
+      INSERT INTO report_schemas (id, name, fields)
+      VALUES ('default', 'Relatório Padrão', ${JSON.stringify(defaultSchemaFields)}::jsonb)
+      ON CONFLICT (id) DO NOTHING
+    `;
+    await sql`
+      INSERT INTO report_schemas (id, name, fields)
+      VALUES ('1', 'Relatório Padrão', ${JSON.stringify(defaultSchemaFields)}::jsonb)
+      ON CONFLICT (id) DO NOTHING
+    `;
+
     const existingUsers = await sql`SELECT count(*) FROM users`;
     if (parseInt(existingUsers[0].count) === 0) {
       await sql`INSERT INTO users (id, username, password, role) VALUES ('admin-1', 'Admin', 'Proativa_*2026', 'admin') ON CONFLICT (username) DO NOTHING`;
@@ -146,8 +171,13 @@ app.get("/api/schemas", async (req, res) => {
 app.post("/api/schemas", async (req, res) => {
   try {
     const newSchema = req.body;
-    await db.insert(reportSchemas).values(newSchema)
-      .onConflictDoUpdate({ target: reportSchemas.id, set: { name: newSchema.name, fields: newSchema.fields } });
+    await sql`
+      INSERT INTO report_schemas (id, name, fields)
+      VALUES (${newSchema.id}, ${newSchema.name}, ${JSON.stringify(newSchema.fields)}::jsonb)
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        fields = EXCLUDED.fields
+    `;
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -168,7 +198,10 @@ app.delete("/api/schemas/:id", async (req, res) => {
 
 app.get("/api/records", async (req, res) => {
   try {
-    const allRecords = await db.select().from(dynamicRecords);
+    const allRecords = await sql`
+      SELECT id, report_id as "reportId", data
+      FROM dynamic_records
+    `;
     res.json(allRecords);
   } catch (err) {
     console.error(err);
@@ -179,8 +212,22 @@ app.get("/api/records", async (req, res) => {
 app.post("/api/records", async (req, res) => {
   try {
     const newRecord = req.body;
-    await db.insert(dynamicRecords).values(newRecord)
-      .onConflictDoUpdate({ target: dynamicRecords.id, set: { data: newRecord.data, reportId: newRecord.reportId } });
+    const rId = newRecord.reportId || 'default';
+
+    await sql`
+      INSERT INTO report_schemas (id, name, fields)
+      VALUES (${rId}, 'Relatório Padrão', '[]'::jsonb)
+      ON CONFLICT (id) DO NOTHING
+    `;
+
+    const dataJson = JSON.stringify(newRecord.data || {});
+    await sql`
+      INSERT INTO dynamic_records (id, report_id, data)
+      VALUES (${newRecord.id}, ${rId}, ${dataJson}::jsonb)
+      ON CONFLICT (id) DO UPDATE SET
+        data = EXCLUDED.data,
+        report_id = EXCLUDED.report_id
+    `;
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -191,12 +238,13 @@ app.post("/api/records", async (req, res) => {
 app.post("/api/records/bulk", async (req, res) => {
   try {
     const { records, mode, reportId } = req.body;
+    const targetReportId = reportId || (records && records[0]?.reportId) || 'default';
     
     if (mode === "overwrite") {
-      if (reportId === 'default' || reportId === '1') {
-        await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${reportId}`;
+      if (targetReportId === 'default' || targetReportId === '1') {
+        await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${targetReportId}`;
       } else {
-        await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+        await sql`DELETE FROM dynamic_records WHERE report_id = ${targetReportId}`;
       }
     }
     
@@ -204,20 +252,34 @@ app.post("/api/records/bulk", async (req, res) => {
       const chunkSize = 1000;
       for (let i = 0; i < records.length; i += chunkSize) {
         const chunk = records.slice(i, i + chunkSize);
-        await db.insert(dynamicRecords).values(chunk)
-          .onConflictDoUpdate({
-            target: dynamicRecords.id,
-            set: {
-              data: sql`EXCLUDED.data`,
-              reportId: sql`EXCLUDED.report_id` as any
-            }
-          });
+        
+        const reportIds = Array.from(new Set(chunk.map((r: any) => r.reportId || targetReportId)));
+        for (const rId of reportIds) {
+          await sql`
+            INSERT INTO report_schemas (id, name, fields)
+            VALUES (${rId as string}, 'Relatório Padrão', '[]'::jsonb)
+            ON CONFLICT (id) DO NOTHING
+          `;
+        }
+
+        const ids = chunk.map((r: any) => r.id);
+        const repIds = chunk.map((r: any) => r.reportId || targetReportId);
+        const datas = chunk.map((r: any) => JSON.stringify(r.data || {}));
+
+        await sql`
+          INSERT INTO dynamic_records (id, report_id, data)
+          SELECT u.id, u.report_id, u.data::jsonb
+          FROM UNNEST(${ids}::text[], ${repIds}::text[], ${datas}::text[]) AS u(id, report_id, data)
+          ON CONFLICT (id) DO UPDATE SET
+            data = EXCLUDED.data,
+            report_id = EXCLUDED.report_id
+        `;
       }
     }
     
     res.json({ success: true, count: records ? records.length : 0 });
   } catch (err) {
-    console.error(err);
+    console.error("Error in /api/records/bulk:", err);
     res.status(500).json({ error: "Failed to save records in bulk" });
   }
 });
