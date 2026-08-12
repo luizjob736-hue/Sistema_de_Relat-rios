@@ -300,7 +300,7 @@ export function ClientTable({
                 className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
               >
                 <ClipboardCopy size={12} />
-                {copyFeedback || "Copiar Resumo"}
+                <span>{copyFeedback || "Copiar Resumo"}</span>
               </button>
             </div>
             <ul className="text-[11px] font-mono text-slate-700 space-y-1.5">
@@ -349,14 +349,14 @@ export function ClientTable({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 text-[11px]">
-                {observacaoBreakdown.counts.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-white/60">
+                {observacaoBreakdown.counts.length > 0 && observacaoBreakdown.counts.map((item, idx) => (
+                  <tr key={`obs_${item.label}_${idx}`} className="hover:bg-white/60">
                     <td className="px-2 py-1 font-medium text-slate-800">{item.label}</td>
                     <td className="px-2 py-1 text-right font-mono font-bold text-slate-900">{item.count}</td>
                   </tr>
                 ))}
                 {observacaoBreakdown.counts.length === 0 && (
-                  <tr>
+                  <tr key="empty-obs">
                     <td colSpan={2} className="px-2 py-3 text-center text-slate-500 italic text-[10px]">Nenhuma observação preenchida.</td>
                   </tr>
                 )}
@@ -418,7 +418,7 @@ export function ClientTable({
         {selectedIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-3 p-2 bg-white border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)]">
             <span className="text-[10px] uppercase font-black tracking-widest text-[#141414]">
-              Ação em Massa ({selectedIds.length}):
+              {`Ação em Massa (${selectedIds.length}):`}
             </span>
             {(schema?.fields || []).filter(f => f && !f.readOnly).map(field => (
               <div key={`bulk_${field.id}`} className="flex items-center gap-1 bg-[#F2F1EB] border-2 border-[#141414] pl-1 pr-1 py-1">
@@ -472,27 +472,27 @@ export function ClientTable({
                 <th key={field.id} className="px-3 py-2 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
                   <div className="flex items-center gap-1 font-extrabold">
                     <span>{field.label || field.id}</span>
-                    {sortField === field.id && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === field.id && <span>{sortOrder === "asc" ? "▲" : "▼"}</span>}
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-[#141414]/30 text-xs text-[#141414] bg-[#E4E3E0]">
-            {paginatedRecords.length === 0 ? (
-              <tr>
+            {paginatedRecords.length === 0 && (
+              <tr key="empty-row">
                 <td colSpan={(schema?.fields?.length || 0) + 1} className="px-6 py-12 text-center text-slate-600 bg-white/20">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <span className="font-mono text-xs font-bold uppercase">Nenhum registro encontrado nesta base.</span>
                   </div>
                 </td>
               </tr>
-            ) : (
-              paginatedRecords.map((item) => (
-                <tr
-                  key={item.id}
-                  className={`hover:bg-white/60 transition-colors ${selectedIds.includes(item.id) ? "bg-[#D1EED5]" : ""}`}
-                >
+            )}
+            {paginatedRecords.length > 0 && paginatedRecords.map((item) => (
+              <tr
+                key={`row_${item.id}`}
+                className={`hover:bg-white/60 transition-colors ${selectedIds.includes(item.id) ? "bg-[#D1EED5]" : ""}`}
+              >
                   <td className="px-3 py-1.5 border-r border-[#141414]/20 text-center">
                     <input
                       type="checkbox"
@@ -547,8 +547,7 @@ export function ClientTable({
                     );
                   })}
                 </tr>
-              ))
-            )}
+              ))}
           </tbody>
         </table>
       </div>
@@ -556,11 +555,10 @@ export function ClientTable({
       {/* Pagination */}
       <div className="flex items-center justify-between p-3 border-t-2 border-[#141414] bg-[#F2F1EB] shrink-0">
         <span className="text-[10px] font-bold text-[#141414] uppercase tracking-wider">
-          {filteredAndSortedRecords.length > 0 ? (
-            <>Mostrando {(currentPage - 1) * rowsPerPage + 1} a {Math.min(currentPage * rowsPerPage, filteredAndSortedRecords.length)} de {filteredAndSortedRecords.length}</>
-          ) : (
-            <>Nenhum registro</>
-          )}
+          {filteredAndSortedRecords.length > 0 
+            ? `Mostrando ${(currentPage - 1) * rowsPerPage + 1} a ${Math.min(currentPage * rowsPerPage, filteredAndSortedRecords.length)} de ${filteredAndSortedRecords.length}`
+            : "Nenhum registro"
+          }
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -572,7 +570,7 @@ export function ClientTable({
             Anterior
           </button>
           <div className="px-3 py-1 text-xs font-mono font-bold bg-[#141414] text-white border-2 border-[#141414]">
-            {currentPage} / {Math.max(1, totalPages)}
+            {`${currentPage} / ${Math.max(1, totalPages)}`}
           </div>
           <button
             type="button"
