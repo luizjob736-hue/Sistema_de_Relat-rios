@@ -127,7 +127,6 @@ function App() {
         });
 
         if (cleanSchemas.length === 0) {
-          cleanSchemas.push(defaultSchema);
         }
 
         setSchemas(cleanSchemas);

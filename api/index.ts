@@ -124,50 +124,11 @@ async function initDb() {
       );
     `;
 
-    // Ensure default schema exists in report_schemas
-    const defaultSchemaFields = [
-      { id: 'nomeBase', label: 'Base', type: 'text', readOnly: true },
-      { id: 'nome', label: 'Nome', type: 'text', readOnly: true },
-      { id: 'cpf', label: 'CPF', type: 'text', readOnly: true },
-      { id: 'email', label: 'E-mail', type: 'text', readOnly: true },
-      { id: 'telefone', label: 'Telefone', type: 'text', readOnly: true },
-      { id: 'valorSolicitado', label: 'Valor Solicitado', type: 'text', readOnly: true },
-      { id: 'valorLiberado', label: 'Valor Liberado', type: 'text', readOnly: true },
-      { id: 'tentativa1', label: 'Tentativa 1', type: 'text', readOnly: false },
-      { id: 'status', label: 'Status', type: 'list', options: ['-', 'Com Sucesso', 'Sem Resposta', 'Sem Sucesso'], readOnly: false },
-      { id: 'observacaoFinal', label: 'Observação final', type: 'list', options: ['-', 'Cliente informa que desconto foi realizado', 'Cliente informa que desconto não foi realizado', 'Sem contato com o cliente'], readOnly: false }
-    ];
-
-    await sql`
-      INSERT INTO report_schemas (id, name, fields)
-      VALUES ('default', 'Relatório Padrão', ${JSON.stringify(defaultSchemaFields)}::jsonb)
-      ON CONFLICT (id) DO NOTHING
-    `;
     
     // Clean up legacy schema '1' if present and migrate its records to 'default'
     try {
       await sql`UPDATE dynamic_records SET report_id = 'default' WHERE report_id = '1'`;
       await sql`DELETE FROM report_schemas WHERE id = '1'`;
-    } catch (e) {}
-
-    // Clean up any duplicate schemas in report_schemas table by name
-    try {
-      const existingSchemas = await sql`SELECT id, name FROM report_schemas`;
-      const seenNames = new Map<string, string>(); // nameLower -> id
-      for (const s of existingSchemas) {
-        const norm = (s.name || "").trim().toLowerCase();
-        if (!norm) continue;
-        if (seenNames.has(norm)) {
-          const keepId = seenNames.get(norm)!;
-          const removeId = s.id;
-          if (removeId !== keepId) {
-            await sql`UPDATE dynamic_records SET report_id = ${keepId} WHERE report_id = ${removeId}`;
-            await sql`DELETE FROM report_schemas WHERE id = ${removeId}`;
-          }
-        } else {
-          seenNames.set(norm, s.id);
-        }
-      }
     } catch (e) {}
 
     const existingUsers = await sql`SELECT count(*) FROM users`;
