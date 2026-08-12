@@ -288,6 +288,134 @@ app.post("/api/records", async (req, res) => {
   }
 });
 
+// Function to deduplicate records across all schemas/tabs keeping only the latest import
+async function deduplicateRecordsInDb() {
+  try {
+    const schemas = await sql`SELECT * FROM report_schemas`;
+    const schemaMap = new Map();
+    schemas.forEach(s => schemaMap.set(s.id, s));
+
+    const records = await sql`SELECT id, report_id, data FROM dynamic_records`;
+    if (!records || records.length === 0) return { deletedCount: 0, keptCount: 0 };
+
+    const cleanCpf = (val: any) => {
+      if (!val || val === '-' || val === '—') return '';
+      return String(val).replace(/\D/g, '');
+    };
+
+    const cleanName = (val: any) => {
+      if (!val || val === '-' || val === '—') return '';
+      return String(val).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+    };
+
+    function getRecordKeys(r: any) {
+      const s = schemaMap.get(r.report_id) || schemaMap.get('default');
+      const fields = s ? (s.fields || []) : [];
+      let cpf = '';
+      let name = '';
+      let base = '';
+
+      for (const [k, v] of Object.entries(r.data || {})) {
+        if (!v || v === '-' || v === '—') continue;
+        const f = fields.find((field: any) => field.id === k);
+        const label = f ? (f.label || f.id) : k;
+        const normLabel = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+        if (normLabel === 'cpf') {
+          cpf = cleanCpf(v);
+        } else if (normLabel === 'nome') {
+          name = cleanName(v);
+        } else if (normLabel === 'base' || normLabel === 'nomebase') {
+          base = String(v);
+        }
+      }
+
+      if (!cpf) {
+        if (r.data.cpf) cpf = cleanCpf(r.data.cpf);
+        else if (r.data.CPF) cpf = cleanCpf(r.data.CPF);
+      }
+      if (!name) {
+        if (r.data.nome) name = cleanName(r.data.nome);
+        else if (r.data.NOME) name = cleanName(r.data.NOME);
+      }
+      if (!base) {
+        if (r.data.nomeBase) base = String(r.data.nomeBase);
+        else if (r.data.Base) base = String(r.data.Base);
+      }
+
+      const isContatoAtivo = base.toLowerCase().includes('contato ativo');
+
+      return { cpf, name, isContatoAtivo };
+    }
+
+    const recordInfos = records.map((r: any, idx: number) => {
+      const { cpf, name, isContatoAtivo } = getRecordKeys(r);
+      return { idx, id: r.id, report_id: r.report_id, cpf, name, isContatoAtivo };
+    });
+
+    const cpfGroups = new Map<string, any[]>();
+    const nameGroups = new Map<string, any[]>();
+
+    recordInfos.forEach((r: any) => {
+      if (r.cpf && r.cpf.length >= 6) {
+        if (!cpfGroups.has(r.cpf)) cpfGroups.set(r.cpf, []);
+        cpfGroups.get(r.cpf)!.push(r);
+      }
+      if (r.name && r.name.length >= 3) {
+        if (!nameGroups.has(r.name)) nameGroups.set(r.name, []);
+        nameGroups.get(r.name)!.push(r);
+      }
+    });
+
+    const deleteIds = new Set<string>();
+    const recordScore = (r: any) => (r.isContatoAtivo ? 10000000 : 0) + r.idx;
+
+    cpfGroups.forEach((group) => {
+      if (group.length > 1) {
+        group.sort((a, b) => recordScore(b) - recordScore(a));
+        for (let i = 1; i < group.length; i++) {
+          deleteIds.add(group[i].id);
+        }
+      }
+    });
+
+    nameGroups.forEach((group) => {
+      const remaining = group.filter(r => !deleteIds.has(r.id));
+      if (remaining.length > 1) {
+        remaining.sort((a, b) => recordScore(b) - recordScore(a));
+        for (let i = 1; i < remaining.length; i++) {
+          deleteIds.add(remaining[i].id);
+        }
+      }
+    });
+
+    if (deleteIds.size > 0) {
+      const deleteArray = Array.from(deleteIds);
+      const chunkSize = 500;
+      for (let i = 0; i < deleteArray.length; i += chunkSize) {
+        const chunk = deleteArray.slice(i, i + chunkSize);
+        await sql`DELETE FROM dynamic_records WHERE id = ANY(${chunk})`;
+      }
+      console.log(`[Deduplication] Deleted ${deleteArray.length} older duplicate records.`);
+    }
+
+    return { deletedCount: deleteIds.size, keptCount: records.length - deleteIds.size };
+  } catch (err) {
+    console.error("Deduplication error:", err);
+    return { error: String(err) };
+  }
+}
+
+app.post("/api/records/deduplicate", async (req, res) => {
+  try {
+    const result = await deduplicateRecordsInDb();
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to deduplicate records" });
+  }
+});
+
 app.post("/api/records/bulk", async (req, res) => {
   try {
     const { records, mode, reportId } = req.body;
@@ -328,6 +456,9 @@ app.post("/api/records/bulk", async (req, res) => {
           }
         });
       }
+
+      // Automatically deduplicate to purge older versions of newly imported records across tabs
+      await deduplicateRecordsInDb();
     }
     
     res.json({ success: true, count: records ? records.length : 0 });

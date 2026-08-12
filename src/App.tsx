@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield } from "lucide-react";
+import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield, Sparkles } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ClientTable } from "./components/ClientTable";
 import { SchemaBuilderModal } from "./components/SchemaBuilderModal";
@@ -163,18 +163,7 @@ function App() {
           setActiveSchemaId(cleanSchemas[0].id);
         }
 
-        // 2. Merge server records and local records so records in custom tabs are never wiped out
-        const localRecordsBackup = localStorage.getItem("crm_records_backup");
-        let localRecords: DynamicRecord[] = [];
-        if (localRecordsBackup) {
-          try {
-            const parsed = JSON.parse(localRecordsBackup);
-            if (Array.isArray(parsed)) {
-              localRecords = parsed;
-            }
-          } catch (e) {}
-        }
-
+        // 2. Set server records as authoritative and sync local backup
         const recordMap = new Map<string, DynamicRecord>();
         (r || []).forEach((rec) => {
           if (rec && rec.id) {
@@ -186,40 +175,21 @@ function App() {
           }
         });
 
-        const missingOnServer: DynamicRecord[] = [];
-        localRecords.forEach((localRec) => {
-          if (localRec && localRec.id) {
-            let recReportId = localRec.reportId || 'default';
-            if (idRemap[recReportId]) {
-              recReportId = idRemap[recReportId];
-            }
-            const cleanLocalRec = { ...localRec, reportId: recReportId };
-            if (!recordMap.has(localRec.id)) {
-              recordMap.set(localRec.id, cleanLocalRec);
-              missingOnServer.push(cleanLocalRec);
-            }
-          }
-        });
-
         let finalRecords = Array.from(recordMap.values());
 
         if (finalRecords.length === 0) {
           finalRecords = getFallbackRecords();
-          missingOnServer.push(...finalRecords);
+          fetch("/api/records/bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ records: finalRecords, mode: "append" })
+          }).catch(console.error);
         }
 
         setRecords(finalRecords);
         try {
           localStorage.setItem("crm_records_backup", JSON.stringify(finalRecords));
         } catch (e) {}
-
-        if (missingOnServer.length > 0) {
-          fetch("/api/records/bulk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ records: missingOnServer, mode: "append" })
-          }).catch(console.error);
-        }
       } catch (err) {
         if (!isBackground) {
           console.error("Failed to load data", err);
@@ -449,12 +419,50 @@ function App() {
       } else {
         showToast(`${addedCount} novos registros e ${updatedCount} atualizações salvas permanentemente no banco!`);
       }
+
+      // Re-fetch deduplicated clean state from server
+      const refreshRes = await fetch("/api/records");
+      if (refreshRes.ok) {
+        const cleanRecs = await refreshRes.json();
+        setRecords(cleanRecs);
+        try {
+          localStorage.setItem("crm_records_backup", JSON.stringify(cleanRecs));
+        } catch (e) {}
+      }
     } catch (err) {
       console.error("Erro na persistência dos dados:", err);
       showToast("Erro ao salvar base no banco de dados.");
     }
     
     setIsImportModalOpen(false);
+  };
+
+  const handleDeduplicate = async () => {
+    try {
+      showToast("Validando duplicidades de Nome e CPF nas guias...");
+      const res = await fetch("/api/records/deduplicate", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        const recordsRes = await fetch("/api/records");
+        if (recordsRes.ok) {
+          const cleanRecs = await recordsRes.json();
+          setRecords(cleanRecs);
+          try {
+            localStorage.setItem("crm_records_backup", JSON.stringify(cleanRecs));
+          } catch (e) {}
+        }
+        if (data.deletedCount > 0) {
+          showToast(`Removidos ${data.deletedCount} registros antigos duplicados! Mantida apenas a última importação.`);
+        } else {
+          showToast("Nenhum registro duplicado foi encontrado nas guias.");
+        }
+      } else {
+        showToast("Erro ao processar remoção de duplicados.");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Erro de conexão ao comunicar com o servidor.");
+    }
   };
 
   if (isLoading) {
@@ -509,6 +517,13 @@ function App() {
                   className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
                 >
                   <LayoutGrid size={16} /> Configurar Guia Atual
+                </button>
+                <button
+                  onClick={handleDeduplicate}
+                  className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                  title="Verificar e remover registros antigos duplicados por Nome ou CPF"
+                >
+                  <Sparkles size={16} /> Limpar Duplicados
                 </button>
                 <button
                   onClick={() => setIsImportModalOpen(true)}
