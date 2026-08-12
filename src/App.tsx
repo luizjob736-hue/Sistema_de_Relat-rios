@@ -79,13 +79,18 @@ function App() {
       setIsLoading(false);
       return;
     }
-    const fetchData = async () => {
+
+    let isSubscribed = true;
+
+    const fetchData = async (isBackground = false) => {
       try {
         const [schemasRes, recordsRes] = await Promise.all([
           fetch("/api/schemas"),
           fetch("/api/records")
         ]);
         
+        if (!isSubscribed) return;
+
         let s: ReportSchema[] = schemasRes.ok ? await schemasRes.json() : [];
         let r: DynamicRecord[] = recordsRes.ok ? await recordsRes.json() : [];
 
@@ -154,11 +159,11 @@ function App() {
         const canonicalActiveTab = savedActiveTab && idRemap[savedActiveTab] ? idRemap[savedActiveTab] : savedActiveTab;
         if (canonicalActiveTab && cleanSchemas.some((sch: ReportSchema) => sch.id === canonicalActiveTab)) {
           setActiveSchemaId(canonicalActiveTab);
-        } else {
+        } else if (!isBackground) {
           setActiveSchemaId(cleanSchemas[0].id);
         }
 
-        // 2. Merge server records and local records so records in custom tabs (e.g. Propostas) are never wiped out
+        // 2. Merge server records and local records so records in custom tabs are never wiped out
         const localRecordsBackup = localStorage.getItem("crm_records_backup");
         let localRecords: DynamicRecord[] = [];
         if (localRecordsBackup) {
@@ -198,7 +203,6 @@ function App() {
 
         let finalRecords = Array.from(recordMap.values());
 
-        // If completely empty across both server and local backup, load fallbacks for default schema
         if (finalRecords.length === 0) {
           finalRecords = getFallbackRecords();
           missingOnServer.push(...finalRecords);
@@ -209,7 +213,6 @@ function App() {
           localStorage.setItem("crm_records_backup", JSON.stringify(finalRecords));
         } catch (e) {}
 
-        // Sync missing local records back to backend in background with their true reportId
         if (missingOnServer.length > 0) {
           fetch("/api/records/bulk", {
             method: "POST",
@@ -218,19 +221,40 @@ function App() {
           }).catch(console.error);
         }
       } catch (err) {
-        console.error("Failed to load data", err);
-        const localBackup = localStorage.getItem("crm_records_backup");
-        if (localBackup) {
-          try {
-            setRecords(JSON.parse(localBackup));
-          } catch (e) {}
+        if (!isBackground) {
+          console.error("Failed to load data", err);
+          const localBackup = localStorage.getItem("crm_records_backup");
+          if (localBackup) {
+            try {
+              setRecords(JSON.parse(localBackup));
+            } catch (e) {}
+          }
         }
-        showToast("Conectando ao banco de dados...");
       } finally {
-        setIsLoading(false);
+        if (!isBackground && isSubscribed) {
+          setIsLoading(false);
+        }
       }
     };
-    fetchData();
+
+    fetchData(false);
+
+    // Auto-polling every 5 seconds for real-time updates across browsers/tabs
+    const pollInterval = setInterval(() => {
+      fetchData(true);
+    }, 5000);
+
+    const handleFocus = () => {
+      fetchData(true);
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(pollInterval);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [currentUser]);
 
   if (!currentUser) {
