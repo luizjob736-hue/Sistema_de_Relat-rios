@@ -507,36 +507,42 @@ export function ClientTable({
                     const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
                     return (
                       <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={cellVal}>
-                        {field.readOnly || !canEdit ? (
-                          <span className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-700'}>
-                            {cellVal}
-                          </span>
-                        ) : (
-                          field.type === 'list' ? (
-                            <select
-                              className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full"
-                              value={cellVal}
-                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                            >
-                              <option value="-">-</option>
-                              {field.options?.map(opt => (
-                                <option key={opt} value={opt}>{opt}</option>
-                              ))}
-                              {cellVal &&
-                               cellVal !== "-" &&
-                               !field.options?.includes(cellVal) && (
-                                <option value={cellVal}>{cellVal}</option>
-                              )}
-                            </select>
+                        <div className="w-full" key={`cell_container_${field.id}_${item.id}`}>
+                          {field.readOnly || !canEdit ? (
+                            <span key={`span_${field.id}_${item.id}`} className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-700'}>
+                              {cellVal}
+                            </span>
                           ) : (
-                            <input
-                              type="text"
-                              className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
-                              value={cellVal === "-" ? "" : cellVal}
-                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                            />
-                          )
-                        )}
+                            field.type === 'list' ? (
+                              <select
+                                key={`select_${field.id}_${item.id}`}
+                                className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full"
+                                value={cellVal}
+                                onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                              >
+                                {(() => {
+                                  const optionsArray = ["-", ...(field.options || [])];
+                                  if (cellVal && cellVal !== "-" && !field.options?.includes(cellVal)) {
+                                    optionsArray.push(cellVal);
+                                  }
+                                  return optionsArray.map((opt, oIdx) => (
+                                    <option key={`${opt}_${oIdx}`} value={opt}>
+                                      {opt}
+                                    </option>
+                                  ));
+                                })()}
+                              </select>
+                            ) : (
+                              <input
+                                key={`input_${field.id}_${item.id}`}
+                                type="text"
+                                className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
+                                value={cellVal === "-" ? "" : cellVal}
+                                onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                              />
+                            )
+                          )}
+                        </div>
                       </td>
                     );
                   })}
