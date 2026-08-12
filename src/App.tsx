@@ -51,7 +51,8 @@ function App() {
   useEffect(() => {
     if (records && records.length > 0) {
       try {
-        localStorage.setItem("crm_records_backup", JSON.stringify(records));
+        const backupRecords = records.slice(0, 100);
+        localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
       } catch (e) {
         console.error("localStorage backup error", e);
       }
@@ -188,7 +189,8 @@ function App() {
 
         setRecords(finalRecords);
         try {
-          localStorage.setItem("crm_records_backup", JSON.stringify(finalRecords));
+          const backupRecords = finalRecords.slice(0, 100);
+          localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
         } catch (e) {}
       } catch (err) {
         if (!isBackground) {
@@ -345,10 +347,25 @@ function App() {
     
     if (isOverwrite) {
       const remaining = records.filter(r => r.reportId !== activeSchema.id);
-      updatedRecordsState = [...remaining, ...newRecords];
-      finalRecordsToSave = newRecords;
+      const mappedNewRecords = newRecords.map((rec, idx) => ({
+        ...rec,
+        data: {
+          ...rec.data,
+          _order: String(idx + 1)
+        }
+      }));
+      updatedRecordsState = [...remaining, ...mappedNewRecords];
+      finalRecordsToSave = mappedNewRecords;
     } else {
       const updated = [...records];
+      const activeRecords = records.filter(r => r.reportId === activeSchema.id);
+      
+      // Find maximum existing order index to prevent duplication of sequence positions
+      let maxOrder = 0;
+      activeRecords.forEach(r => {
+        const o = r.data && r.data._order ? Number(r.data._order) : 0;
+        if (o > maxOrder) maxOrder = o;
+      });
       
       newRecords.forEach((newRec) => {
         const cpfField = activeSchema.fields.find(f => f.label.toLowerCase().includes('cpf') || f.id.toLowerCase().includes('cpf'))?.id;
@@ -381,6 +398,11 @@ function App() {
             }
           });
 
+          if (!mergedData._order) {
+            maxOrder++;
+            mergedData._order = String(maxOrder);
+          }
+
           updated[existingIndex] = {
             ...updated[existingIndex],
             data: mergedData
@@ -388,8 +410,16 @@ function App() {
           finalRecordsToSave.push(updated[existingIndex]);
           updatedCount++;
         } else {
-          updated.push(newRec);
-          finalRecordsToSave.push(newRec);
+          maxOrder++;
+          const recWithOrder = {
+            ...newRec,
+            data: {
+              ...newRec.data,
+              _order: String(maxOrder)
+            }
+          };
+          updated.push(recWithOrder);
+          finalRecordsToSave.push(recWithOrder);
           addedCount++;
         }
       });

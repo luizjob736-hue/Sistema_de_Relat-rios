@@ -100,12 +100,17 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
     const baseField = (schema?.fields || []).find(f => f && ((f.label && f.label.toLowerCase().includes('base')) || (f.id && f.id.toLowerCase().includes('base'))));
     
     const recordsToImport = parsedPreview.map(item => {
-      if (nomeBase.trim() && baseField) {
+      if (baseField) {
+        const existingBase = item.data[baseField.id];
+        const finalBaseName = (existingBase && existingBase !== "-")
+          ? existingBase
+          : (nomeBase.trim() || (fileName ? fileName.replace(/\.[^/.]+$/, "") : schema.name));
+
         return {
           ...item,
           data: {
             ...item.data,
-            [baseField.id]: nomeBase.trim()
+            [baseField.id]: finalBaseName
           }
         };
       }

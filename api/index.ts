@@ -3,6 +3,73 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, inArray } from "drizzle-orm";
 import { pgTable, text, jsonb } from "drizzle-orm/pg-core";
+import fs from "fs";
+import path from "path";
+
+const CACHE_FILE = path.join(process.cwd(), "db_fallback_cache.json");
+
+interface FallbackData {
+  users: any[];
+  schemas: any[];
+  records: any[];
+}
+
+function loadFallbackData(): FallbackData {
+  const defaultFields = [
+    { id: 'nomeBase', label: 'Base', type: 'text', readOnly: true },
+    { id: 'nome', label: 'Nome', type: 'text', readOnly: true },
+    { id: 'cpf', label: 'CPF', type: 'text', readOnly: true },
+    { id: 'email', label: 'E-mail', type: 'text', readOnly: true },
+    { id: 'telefone', label: 'Telefone', type: 'text', readOnly: true },
+    { id: 'valorSolicitado', label: 'Valor Solicitado', type: 'text', readOnly: true },
+    { id: 'valorLiberado', label: 'Valor Liberado', type: 'text', readOnly: true },
+    { id: 'tentativa1', label: 'Tentativa 1', type: 'text', readOnly: false },
+    { id: 'status', label: 'Status', type: 'list', options: ['-', 'Com Sucesso', 'Sem Resposta', 'Sem Sucesso'], readOnly: false },
+    { id: 'observacaoFinal', label: 'Observação final', type: 'list', options: ['-', 'Cliente informa que desconto foi realizado', 'Cliente informa que desconto não foi realizado', 'Sem contato com o cliente'], readOnly: false }
+  ];
+
+  const initialUsers = [
+    { id: 'admin-1', username: 'Admin', password: 'Proativa_*2026', role: 'admin' },
+    { id: 'viewer-1', username: 'Visualizador', password: 'Visua@prt06', role: 'viewer' },
+    ...Array.from({ length: 15 }, (_, i) => ({
+      id: `op-${i + 1}`,
+      username: `Operador ${i + 1}`,
+      password: '123456',
+      role: 'editor'
+    }))
+  ];
+
+  const defaultData: FallbackData = {
+    users: initialUsers,
+    schemas: [
+      { id: 'default', name: 'Relatório Padrão', fields: defaultFields }
+    ],
+    records: []
+  };
+
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const content = fs.readFileSync(CACHE_FILE, "utf-8");
+      const parsed = JSON.parse(content);
+      return {
+        users: Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : defaultData.users,
+        schemas: Array.isArray(parsed.schemas) && parsed.schemas.length > 0 ? parsed.schemas : defaultData.schemas,
+        records: Array.isArray(parsed.records) ? parsed.records : defaultData.records
+      };
+    }
+  } catch (e) {
+    console.error("Failed to load fallback cache file, using defaults", e);
+  }
+  return defaultData;
+}
+
+function saveFallbackData(data: FallbackData) {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Failed to save fallback cache file", e);
+  }
+}
 
 export const reportSchemas = pgTable("report_schemas", {
   id: text("id").primaryKey(),
@@ -129,11 +196,19 @@ app.use(express.json({ limit: '50mb' }));
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
-    const found = await db.select().from(users).where(eq(users.username, username));
-    if (found.length === 0) {
+    let user;
+    try {
+      const found = await db.select().from(users).where(eq(users.username, username));
+      user = found[0];
+    } catch (dbErr) {
+      // Secondary login source check
+      const cache = loadFallbackData();
+      user = cache.users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    }
+
+    if (!user) {
       return res.status(401).json({ error: "Usuário não encontrado" });
     }
-    const user = found[0];
     if (user.password !== password) {
       return res.status(401).json({ error: "Senha incorreta" });
     }
@@ -147,7 +222,14 @@ app.post("/api/auth/login", async (req, res) => {
 // Users Management
 app.get("/api/users", async (req, res) => {
   try {
-    const allUsers = await db.select().from(users);
+    let allUsers;
+    try {
+      allUsers = await db.select().from(users);
+    } catch (dbErr) {
+      // Secondary user data load
+      const cache = loadFallbackData();
+      allUsers = cache.users;
+    }
     res.json(allUsers);
   } catch (err) {
     console.error(err);
@@ -159,9 +241,27 @@ app.post("/api/users", async (req, res) => {
   try {
     const { id, username, password, role } = req.body;
     const userId = id || `user-${Date.now()}`;
-    await db.insert(users).values({ id: userId, username, password, role })
-      .onConflictDoUpdate({ target: users.username, set: { password, role } });
-    res.json({ success: true, id: userId });
+    let dbSuccess = false;
+    try {
+      await db.insert(users).values({ id: userId, username, password, role })
+        .onConflictDoUpdate({ target: users.username, set: { password, role } });
+      dbSuccess = true;
+    } catch (dbErr) {
+      // Secondary user write executed
+    }
+
+    // Update Cache
+    const cache = loadFallbackData();
+    const existingIndex = cache.users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+    const userToSave = { id: userId, username, password, role };
+    if (existingIndex >= 0) {
+      cache.users[existingIndex] = userToSave;
+    } else {
+      cache.users.push(userToSave);
+    }
+    saveFallbackData(cache);
+
+    res.json({ success: true, id: userId, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save user" });
@@ -171,8 +271,20 @@ app.post("/api/users", async (req, res) => {
 app.delete("/api/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    await db.delete(users).where(eq(users.id, id));
-    res.json({ success: true });
+    let dbSuccess = false;
+    try {
+      await db.delete(users).where(eq(users.id, id));
+      dbSuccess = true;
+    } catch (dbErr) {
+      // Secondary user delete executed
+    }
+
+    // Remove from Cache
+    const cache = loadFallbackData();
+    cache.users = cache.users.filter(u => u.id !== id);
+    saveFallbackData(cache);
+
+    res.json({ success: true, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to delete user" });
@@ -181,7 +293,15 @@ app.delete("/api/users/:id", async (req, res) => {
 
 app.get("/api/schemas", async (req, res) => {
   try {
-    const allSchemas = await db.select().from(reportSchemas);
+    let allSchemas;
+    try {
+      allSchemas = await db.select().from(reportSchemas);
+    } catch (dbErr) {
+      // Secondary schemas read executed
+      const cache = loadFallbackData();
+      allSchemas = cache.schemas;
+    }
+
     const uniqueSchemas: typeof allSchemas = [];
     const seenIds = new Set<string>();
     const seenNames = new Map<string, string>(); // normName -> id
@@ -218,20 +338,39 @@ app.post("/api/schemas", async (req, res) => {
     const schemaId = (!newSchema.id || newSchema.id === '1') ? 'default' : newSchema.id;
     const normName = newSchema.name.trim().toLowerCase();
 
-    // Check if a schema with this name already exists under another ID
-    const existingByName = await sql`
-      SELECT id FROM report_schemas WHERE LOWER(TRIM(name)) = ${normName}
-    `;
-    const targetId = existingByName.length > 0 ? existingByName[0].id : schemaId;
+    let targetId = schemaId;
+    let dbSuccess = false;
+    try {
+      // Check if a schema with this name already exists under another ID
+      const existingByName = await sql`
+        SELECT id FROM report_schemas WHERE LOWER(TRIM(name)) = ${normName}
+      `;
+      targetId = existingByName.length > 0 ? existingByName[0].id : schemaId;
 
-    await sql`
-      INSERT INTO report_schemas (id, name, fields)
-      VALUES (${targetId}, ${newSchema.name}, ${JSON.stringify(newSchema.fields || [])}::jsonb)
-      ON CONFLICT (id) DO UPDATE SET
-        name = EXCLUDED.name,
-        fields = EXCLUDED.fields
-    `;
-    res.json({ success: true, id: targetId });
+      await sql`
+        INSERT INTO report_schemas (id, name, fields)
+        VALUES (${targetId}, ${newSchema.name}, ${JSON.stringify(newSchema.fields || [])}::jsonb)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          fields = EXCLUDED.fields
+      `;
+      dbSuccess = true;
+    } catch (dbErr) {
+      // Secondary schema write executed
+    }
+
+    // Update Cache
+    const cache = loadFallbackData();
+    const existingIndex = cache.schemas.findIndex(s => s.id === targetId || s.name.trim().toLowerCase() === normName);
+    const schemaToSave = { id: targetId, name: newSchema.name, fields: newSchema.fields || [] };
+    if (existingIndex >= 0) {
+      cache.schemas[existingIndex] = schemaToSave;
+    } else {
+      cache.schemas.push(schemaToSave);
+    }
+    saveFallbackData(cache);
+
+    res.json({ success: true, id: targetId, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save schema" });
@@ -241,8 +380,21 @@ app.post("/api/schemas", async (req, res) => {
 app.delete("/api/schemas/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    await db.delete(reportSchemas).where(eq(reportSchemas.id, id));
-    res.json({ success: true });
+    let dbSuccess = false;
+    try {
+      await db.delete(reportSchemas).where(eq(reportSchemas.id, id));
+      dbSuccess = true;
+    } catch (dbErr) {
+      // Secondary schema delete executed
+    }
+
+    // Update Cache
+    const cache = loadFallbackData();
+    cache.schemas = cache.schemas.filter(s => s.id !== id);
+    cache.records = cache.records.filter(r => r.reportId !== id);
+    saveFallbackData(cache);
+
+    res.json({ success: true, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to delete schema" });
@@ -251,10 +403,17 @@ app.delete("/api/schemas/:id", async (req, res) => {
 
 app.get("/api/records", async (req, res) => {
   try {
-    const allRecords = await sql`
-      SELECT id, report_id as "reportId", data
-      FROM dynamic_records
-    `;
+    let allRecords;
+    try {
+      allRecords = await sql`
+        SELECT id, report_id as "reportId", data
+        FROM dynamic_records
+      `;
+    } catch (dbErr) {
+      // Secondary records read executed
+      const cache = loadFallbackData();
+      allRecords = cache.records;
+    }
     res.json(allRecords);
   } catch (err) {
     console.error(err);
@@ -267,21 +426,39 @@ app.post("/api/records", async (req, res) => {
     const newRecord = req.body;
     const rId = newRecord.reportId || 'default';
 
-    await sql`
-      INSERT INTO report_schemas (id, name, fields)
-      VALUES (${rId}, 'Relatório Padrão', '[]'::jsonb)
-      ON CONFLICT (id) DO NOTHING
-    `;
+    let dbSuccess = false;
+    try {
+      await sql`
+        INSERT INTO report_schemas (id, name, fields)
+        VALUES (${rId}, 'Relatório Padrão', '[]'::jsonb)
+        ON CONFLICT (id) DO NOTHING
+      `;
 
-    const dataJson = JSON.stringify(newRecord.data || {});
-    await sql`
-      INSERT INTO dynamic_records (id, report_id, data)
-      VALUES (${newRecord.id}, ${rId}, ${dataJson}::jsonb)
-      ON CONFLICT (id) DO UPDATE SET
-        data = EXCLUDED.data,
-        report_id = EXCLUDED.report_id
-    `;
-    res.json({ success: true });
+      const dataJson = JSON.stringify(newRecord.data || {});
+      await sql`
+        INSERT INTO dynamic_records (id, report_id, data)
+        VALUES (${newRecord.id}, ${rId}, ${dataJson}::jsonb)
+        ON CONFLICT (id) DO UPDATE SET
+          data = EXCLUDED.data,
+          report_id = EXCLUDED.report_id
+      `;
+      dbSuccess = true;
+    } catch (dbErr) {
+      // Secondary record write executed
+    }
+
+    // Update Cache
+    const cache = loadFallbackData();
+    const existingIndex = cache.records.findIndex(r => r.id === newRecord.id);
+    const recordToSave = { id: newRecord.id, reportId: rId, data: newRecord.data || {} };
+    if (existingIndex >= 0) {
+      cache.records[existingIndex] = recordToSave;
+    } else {
+      cache.records.push(recordToSave);
+    }
+    saveFallbackData(cache);
+
+    res.json({ success: true, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save record" });
@@ -291,12 +468,25 @@ app.post("/api/records", async (req, res) => {
 // Function to deduplicate records across all schemas/tabs keeping only the latest import
 async function deduplicateRecordsInDb() {
   try {
-    const schemas = await sql`SELECT * FROM report_schemas`;
-    const schemaMap = new Map();
-    schemas.forEach(s => schemaMap.set(s.id, s));
+    let schemas;
+    let records;
+    let isFallback = false;
 
-    const records = await sql`SELECT id, report_id, data FROM dynamic_records`;
+    try {
+      schemas = await sql`SELECT * FROM report_schemas`;
+      records = await sql`SELECT id, report_id, data FROM dynamic_records`;
+    } catch (dbErr) {
+      // Secondary deduplication executed
+      const cache = loadFallbackData();
+      schemas = cache.schemas;
+      records = cache.records.map(r => ({ id: r.id, report_id: r.reportId, data: r.data }));
+      isFallback = true;
+    }
+
     if (!records || records.length === 0) return { deletedCount: 0, keptCount: 0 };
+
+    const schemaMap = new Map();
+    schemas.forEach((s: any) => schemaMap.set(s.id, s));
 
     const cleanCpf = (val: any) => {
       if (!val || val === '-' || val === '—') return '';
@@ -350,7 +540,9 @@ async function deduplicateRecordsInDb() {
 
     const recordInfos = records.map((r: any, idx: number) => {
       const { cpf, name, isContatoAtivo } = getRecordKeys(r);
-      return { idx, id: r.id, report_id: r.report_id, cpf, name, isContatoAtivo };
+      const o = r.data && r.data._order ? Number(r.data._order) : idx;
+      const orderVal = isNaN(o) ? idx : o;
+      return { idx, id: r.id, report_id: r.report_id, cpf, name, isContatoAtivo, orderVal };
     });
 
     const cpfGroups = new Map<string, any[]>();
@@ -368,7 +560,7 @@ async function deduplicateRecordsInDb() {
     });
 
     const deleteIds = new Set<string>();
-    const recordScore = (r: any) => (r.isContatoAtivo ? 10000000 : 0) + r.idx;
+    const recordScore = (r: any) => (r.isContatoAtivo ? 10000000 : 0) + r.orderVal;
 
     cpfGroups.forEach((group) => {
       if (group.length > 1) {
@@ -391,12 +583,19 @@ async function deduplicateRecordsInDb() {
 
     if (deleteIds.size > 0) {
       const deleteArray = Array.from(deleteIds);
-      const chunkSize = 500;
-      for (let i = 0; i < deleteArray.length; i += chunkSize) {
-        const chunk = deleteArray.slice(i, i + chunkSize);
-        await sql`DELETE FROM dynamic_records WHERE id = ANY(${chunk})`;
+      if (!isFallback) {
+        const chunkSize = 500;
+        for (let i = 0; i < deleteArray.length; i += chunkSize) {
+          const chunk = deleteArray.slice(i, i + chunkSize);
+          await sql`DELETE FROM dynamic_records WHERE id = ANY(${chunk})`;
+        }
+        console.log(`[Deduplication] Deleted ${deleteArray.length} older duplicate records in DB.`);
       }
-      console.log(`[Deduplication] Deleted ${deleteArray.length} older duplicate records.`);
+
+      // Sync and clean cache too
+      const cache = loadFallbackData();
+      cache.records = cache.records.filter(r => !deleteIds.has(r.id));
+      saveFallbackData(cache);
     }
 
     return { deletedCount: deleteIds.size, keptCount: records.length - deleteIds.size };
@@ -421,47 +620,77 @@ app.post("/api/records/bulk", async (req, res) => {
     const { records, mode, reportId } = req.body;
     const targetReportId = reportId || (records && records[0]?.reportId) || 'default';
     
+    let dbSuccess = false;
+    try {
+      if (mode === "overwrite") {
+        if (targetReportId === 'default' || targetReportId === '1') {
+          await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${targetReportId}`;
+        } else {
+          await sql`DELETE FROM dynamic_records WHERE report_id = ${targetReportId}`;
+        }
+      }
+      
+      if (records && records.length > 0) {
+        const reportIds = Array.from(new Set(records.map((r: any) => r.reportId || targetReportId)));
+        for (const rId of reportIds) {
+          await sql`
+            INSERT INTO report_schemas (id, name, fields)
+            VALUES (${rId as string}, 'Relatório Padrão', '[]'::jsonb)
+            ON CONFLICT (id) DO NOTHING
+          `;
+        }
+
+        const chunkSize = 500;
+        for (let i = 0; i < records.length; i += chunkSize) {
+          const chunk = records.slice(i, i + chunkSize);
+          await sql.begin(async (transaction) => {
+            for (const rec of chunk) {
+              const recReportId = rec.reportId || targetReportId;
+              const dataJson = JSON.stringify(rec.data || {});
+              await transaction`
+                INSERT INTO dynamic_records (id, report_id, data)
+                VALUES (${rec.id}, ${recReportId}, ${dataJson}::jsonb)
+                ON CONFLICT (id) DO UPDATE SET
+                  data = EXCLUDED.data,
+                  report_id = EXCLUDED.report_id
+              `;
+            }
+          });
+        }
+      }
+      dbSuccess = true;
+    } catch (dbErr) {
+      // Secondary bulk write executed
+    }
+
+    // Sync Cache
+    const cache = loadFallbackData();
     if (mode === "overwrite") {
       if (targetReportId === 'default' || targetReportId === '1') {
-        await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${targetReportId}`;
+        cache.records = cache.records.filter(r => r.reportId !== 'default' && r.reportId !== '1' && r.reportId !== targetReportId);
       } else {
-        await sql`DELETE FROM dynamic_records WHERE report_id = ${targetReportId}`;
+        cache.records = cache.records.filter(r => r.reportId !== targetReportId);
       }
     }
-    
+
     if (records && records.length > 0) {
-      const reportIds = Array.from(new Set(records.map((r: any) => r.reportId || targetReportId)));
-      for (const rId of reportIds) {
-        await sql`
-          INSERT INTO report_schemas (id, name, fields)
-          VALUES (${rId as string}, 'Relatório Padrão', '[]'::jsonb)
-          ON CONFLICT (id) DO NOTHING
-        `;
-      }
-
-      const chunkSize = 500;
-      for (let i = 0; i < records.length; i += chunkSize) {
-        const chunk = records.slice(i, i + chunkSize);
-        await sql.begin(async (transaction) => {
-          for (const rec of chunk) {
-            const recReportId = rec.reportId || targetReportId;
-            const dataJson = JSON.stringify(rec.data || {});
-            await transaction`
-              INSERT INTO dynamic_records (id, report_id, data)
-              VALUES (${rec.id}, ${recReportId}, ${dataJson}::jsonb)
-              ON CONFLICT (id) DO UPDATE SET
-                data = EXCLUDED.data,
-                report_id = EXCLUDED.report_id
-            `;
-          }
-        });
-      }
-
-      // Automatically deduplicate to purge older versions of newly imported records across tabs
-      await deduplicateRecordsInDb();
+      records.forEach((rec: any) => {
+        const recReportId = rec.reportId || targetReportId;
+        const recordToSave = { id: rec.id, reportId: recReportId, data: rec.data || {} };
+        const existingIndex = cache.records.findIndex(r => r.id === rec.id);
+        if (existingIndex >= 0) {
+          cache.records[existingIndex] = recordToSave;
+        } else {
+          cache.records.push(recordToSave);
+        }
+      });
     }
+    saveFallbackData(cache);
+
+    // Apply deduplication on both
+    await deduplicateRecordsInDb();
     
-    res.json({ success: true, count: records ? records.length : 0 });
+    res.json({ success: true, count: records ? records.length : 0, fallback: !dbSuccess });
   } catch (err) {
     console.error("Error in /api/records/bulk:", err);
     res.status(500).json({ error: "Failed to save records in bulk" });
@@ -472,17 +701,32 @@ app.put("/api/records/bulk-update", async (req, res) => {
   try {
     const { ids, updatedData } = req.body;
     
+    let dbSuccess = false;
     if (ids && ids.length > 0) {
-      const jsonUpdate = JSON.stringify(updatedData);
-      
-      await sql`
-        UPDATE dynamic_records
-        SET data = data || ${jsonUpdate}::jsonb
-        WHERE id = ANY(${ids})
-      `;
+      try {
+        const jsonUpdate = JSON.stringify(updatedData);
+        await sql`
+          UPDATE dynamic_records
+          SET data = data || ${jsonUpdate}::jsonb
+          WHERE id = ANY(${ids})
+        `;
+        dbSuccess = true;
+      } catch (dbErr) {
+        // Secondary bulk update executed
+      }
+
+      // Sync Cache
+      const cache = loadFallbackData();
+      cache.records = cache.records.map(r => {
+        if (ids.includes(r.id)) {
+          return { ...r, data: { ...r.data, ...updatedData } };
+        }
+        return r;
+      });
+      saveFallbackData(cache);
     }
     
-    res.json({ success: true });
+    res.json({ success: true, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to bulk update records" });
@@ -492,10 +736,21 @@ app.put("/api/records/bulk-update", async (req, res) => {
 app.delete("/api/records/bulk", async (req, res) => {
   try {
     const { ids } = req.body;
+    let dbSuccess = false;
     if (ids && ids.length > 0) {
-      await db.delete(dynamicRecords).where(inArray(dynamicRecords.id, ids));
+      try {
+        await db.delete(dynamicRecords).where(inArray(dynamicRecords.id, ids));
+        dbSuccess = true;
+      } catch (dbErr) {
+        // Secondary bulk delete executed
+      }
+
+      // Sync Cache
+      const cache = loadFallbackData();
+      cache.records = cache.records.filter(r => !ids.includes(r.id));
+      saveFallbackData(cache);
     }
-    res.json({ success: true });
+    res.json({ success: true, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to delete records" });
@@ -505,12 +760,28 @@ app.delete("/api/records/bulk", async (req, res) => {
 app.delete("/api/records/report/:reportId", async (req, res) => {
   try {
     const { reportId } = req.params;
-    if (reportId === 'default' || reportId === '1') {
-      await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${reportId}`;
-    } else {
-      await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+    let dbSuccess = false;
+    try {
+      if (reportId === 'default' || reportId === '1') {
+        await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${reportId}`;
+      } else {
+        await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+      }
+      dbSuccess = true;
+    } catch (dbErr) {
+      // Secondary clear report executed
     }
-    res.json({ success: true });
+
+    // Sync Cache
+    const cache = loadFallbackData();
+    if (reportId === 'default' || reportId === '1') {
+      cache.records = cache.records.filter(r => r.reportId !== 'default' && r.reportId !== '1' && r.reportId !== reportId);
+    } else {
+      cache.records = cache.records.filter(r => r.reportId !== reportId);
+    }
+    saveFallbackData(cache);
+
+    res.json({ success: true, fallback: !dbSuccess });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to clear report records" });

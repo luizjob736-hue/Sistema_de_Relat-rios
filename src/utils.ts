@@ -25,6 +25,7 @@ export const getFallbackRecords = (): DynamicRecord[] => {
       id: `client-${i}-${generateId()}`,
       reportId: 'default',
       data: {
+        _order: String(i),
         nomeBase: '-',
         nome: cleanColumn(cols[0]) || "-",
         cpf: cleanColumn(cols[1]) || "-",
@@ -107,17 +108,30 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
   }
 
   const expectedFields = schema?.fields || [];
-  const expectedLabels = expectedFields.map(f => f?.label || f?.id || "Coluna");
+  
+  // Detect if the "Base" field is missing from the uploaded CSV
+  // The "Base" field is typically the first field (id: 'nomeBase' or label: 'Base')
+  const firstHeader = headerCols[0] ? normalizeHeader(headerCols[0]) : "";
+  const firstField = expectedFields[0];
+  const isBaseMissing = firstField && 
+    (firstField.id === 'nomeBase' || normalizeHeader(firstField.label) === 'base') &&
+    (firstHeader !== 'base' && firstHeader !== 'nomebase');
+
+  const validationFields = isBaseMissing 
+    ? expectedFields.filter(f => f.id !== 'nomeBase' && normalizeHeader(f.label) !== 'base')
+    : expectedFields;
+
+  const expectedLabels = validationFields.map(f => f?.label || f?.id || "Coluna");
 
   // Strict check: Header count & exact position titles matching
-  if (headerCols.length < expectedFields.length) {
+  if (headerCols.length < validationFields.length) {
     throw new Error(
-      `O arquivo CSV possui apenas ${headerCols.length} colunas, mas a guia '${schema?.name || 'Relatório'}' exige ${expectedFields.length} colunas.\nEstrutura esperada: ${expectedLabels.join(" ; ")}`
+      `O arquivo CSV possui apenas ${headerCols.length} colunas, mas a guia '${schema?.name || 'Relatório'}' exige ${validationFields.length} colunas.\nEstrutura esperada: ${expectedLabels.join(" ; ")}`
     );
   }
 
   const mismatchedCols: string[] = [];
-  expectedFields.forEach((field, index) => {
+  validationFields.forEach((field, index) => {
     const headerTitle = headerCols[index] || "";
     const normHeader = normalizeHeader(headerTitle);
     const normLabel = normalizeHeader(field?.label || "");
@@ -145,14 +159,15 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
     const cols = line.split(separator);
     const data: Record<string, string> = {};
     
-    // Initialize default values
+    // Initialize default values for all expected fields
     expectedFields.forEach(f => {
       if (f && f.id) {
         data[f.id] = (f.type === 'list' && f.options && f.options.length > 0) ? (f.options.includes("-") ? "-" : f.options[0]) : "-";
       }
     });
 
-    expectedFields.forEach((field, index) => {
+    // Populate data with matching values from CSV columns
+    validationFields.forEach((field, index) => {
       if (!field || !field.id) return;
       let cleaned = cols[index] !== undefined ? cleanColumn(cols[index]) : "";
       
@@ -177,8 +192,15 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
       data[field.id] = cleaned;
     });
 
-    // Skip line if all fields are empty or defaults
-    if (Object.values(data).every(val => val === "-" || val === "")) {
+    // Keep _order tracking for fixed position ordering
+    data._order = String(i);
+
+    // Skip line if all fields are empty or defaults (ignoring metadata keys like _order)
+    const isAllEmpty = Object.keys(data)
+      .filter(k => k !== '_order')
+      .every(k => data[k] === "-" || data[k] === "");
+      
+    if (isAllEmpty) {
        continue;
     }
 

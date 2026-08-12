@@ -102,6 +102,14 @@ export function ClientTable({
         if (valA > valB) return sortOrder === "asc" ? 1 : -1;
         return 0;
       });
+    } else {
+      // Sort by original import order to keep record position fixed
+      result.sort((a, b) => {
+        const orderA = a?.data?._order !== undefined ? Number(a.data._order) : Infinity;
+        const orderB = b?.data?._order !== undefined ? Number(b.data._order) : Infinity;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.id.localeCompare(b.id);
+      });
     }
 
     return result;
