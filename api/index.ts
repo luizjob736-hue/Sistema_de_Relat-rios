@@ -584,14 +584,13 @@ app.post("/api/records/bulk", async (req, res) => {
         }
       }
       
-      if (records && records.length > 0) {
-        const reportIds = Array.from(new Set(records.map((r: any) => r.reportId || targetReportId)));
-
+      if (records && Array.isArray(records) && records.length > 0) {
         const chunkSize = 500;
         for (let i = 0; i < records.length; i += chunkSize) {
           const chunk = records.slice(i, i + chunkSize);
           await sql.begin(async (transaction) => {
             for (const rec of chunk) {
+              if (!rec.id) continue;
               const recReportId = rec.reportId || targetReportId;
               const dataJson = JSON.stringify(rec.data || {});
               await transaction`
@@ -607,7 +606,12 @@ app.post("/api/records/bulk", async (req, res) => {
       }
       dbSuccess = true;
     } catch (dbErr) {
-      // Secondary bulk write executed
+      console.error("Critical DB error during bulk import:", dbErr);
+      dbSuccess = false;
+    }
+
+    if (!dbSuccess) {
+      return res.status(500).json({ error: "Failed to save records to database" });
     }
 
     // Sync Cache
