@@ -1,0 +1,187 @@
+{
+  "users": [
+    {
+      "id": "admin-1",
+      "username": "Admin",
+      "password": "Proativa_*2026",
+      "role": "admin"
+    },
+    {
+      "id": "viewer-1",
+      "username": "Visualizador",
+      "password": "Visua@prt06",
+      "role": "viewer"
+    },
+    {
+      "id": "op-1",
+      "username": "Operador 1",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-2",
+      "username": "Operador 2",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-3",
+      "username": "Operador 3",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-4",
+      "username": "Operador 4",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-5",
+      "username": "Operador 5",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-6",
+      "username": "Operador 6",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-7",
+      "username": "Operador 7",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-8",
+      "username": "Operador 8",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-9",
+      "username": "Operador 9",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-10",
+      "username": "Operador 10",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-11",
+      "username": "Operador 11",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-12",
+      "username": "Operador 12",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-13",
+      "username": "Operador 13",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-14",
+      "username": "Operador 14",
+      "password": "123456",
+      "role": "editor"
+    },
+    {
+      "id": "op-15",
+      "username": "Operador 15",
+      "password": "123456",
+      "role": "editor"
+    }
+  ],
+  "schemas": [
+    {
+      "id": "default",
+      "name": "Relatório Padrão",
+      "fields": [
+        {
+          "id": "nomeBase",
+          "label": "Base",
+          "type": "text",
+          "readOnly": true
+        },
+        {
+          "id": "nome",
+          "label": "Nome",
+          "type": "text",
+          "readOnly": true
+        },
+        {
+          "id": "cpf",
+          "label": "CPF",
+          "type": "text",
+          "readOnly": true
+        },
+        {
+          "id": "email",
+          "label": "E-mail",
+          "type": "text",
+          "readOnly": true
+        },
+        {
+          "id": "telefone",
+          "label": "Telefone",
+          "type": "text",
+          "readOnly": true
+        },
+        {
+          "id": "valorSolicitado",
+          "label": "Valor Solicitado",
+          "type": "text",
+          "readOnly": true
+        },
+        {
+          "id": "valorLiberado",
+          "label": "Valor Liberado",
+          "type": "text",
+          "readOnly": true
+        },
+        {
+          "id": "tentativa1",
+          "label": "Tentativa 1",
+          "type": "text",
+          "readOnly": false
+        },
+        {
+          "id": "status",
+          "label": "Status",
+          "type": "list",
+          "options": [
+            "-",
+            "Com Sucesso",
+            "Sem Resposta",
+            "Sem Sucesso"
+          ],
+          "readOnly": false
+        },
+        {
+          "id": "observacaoFinal",
+          "label": "Observação final",
+          "type": "list",
+          "options": [
+            "-",
+            "Cliente informa que desconto foi realizado",
+            "Cliente informa que desconto não foi realizado",
+            "Sem contato com o cliente"
+          ],
+          "readOnly": false
+        }
+      ]
+    }
+  ],
+  "records": []
+}
