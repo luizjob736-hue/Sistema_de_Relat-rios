@@ -308,11 +308,12 @@ function App() {
     setRecords((prev) => prev.filter((r) => !idsToDelete.includes(r.id)));
     
     try {
-      await fetch("/api/records/bulk", {
+      const response = await fetch("/api/records/bulk", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: idsToDelete }),
       });
+      if (!response.ok) throw new Error("Failed to delete records");
       showToast(`${idsToDelete.length} registros excluídos.`);
     } catch (err) {
       showToast("Erro ao excluir.");
@@ -619,7 +620,8 @@ function App() {
                       e.stopPropagation();
                       if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"? Todas as planilhas dentro dela serão apagadas.`)) {
                         try {
-                          await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
+                          const response = await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
+                          if (!response.ok) throw new Error("Failed to delete schema on server");
                           
                           // Server-side deleted, now update local state
                           setSchemas(schemas.filter(s => s.id !== schema.id));

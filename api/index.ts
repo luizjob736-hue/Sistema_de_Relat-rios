@@ -385,7 +385,8 @@ app.delete("/api/schemas/:id", async (req, res) => {
       await db.delete(reportSchemas).where(eq(reportSchemas.id, id));
       dbSuccess = true;
     } catch (dbErr) {
-      // Secondary schema delete executed
+      console.error("DB_ERR in delete schema:", dbErr);
+      throw dbErr; // Let the outer catch handle it
     }
 
     // Update Cache
