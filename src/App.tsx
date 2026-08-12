@@ -555,21 +555,19 @@ function App() {
                   onClick={async () => {
                     if (confirm(`Tem certeza que deseja apagar todos os registros da base "${activeSchema.name}"?`)) {
                       try {
-                        // Optimistic update
-                        setRecords(prev => {
-                          const remaining = prev.filter(r => r.reportId !== activeSchema.id);
-                          localStorage.setItem("crm_records_backup", JSON.stringify(remaining));
-                          return remaining;
-                        });
                         showToast(`Apagando base "${activeSchema.name}"... aguarde.`);
 
                         const res = await fetch(`/api/records/report/${activeSchema.id}`, { method: 'DELETE' });
                         if (!res.ok) throw new Error("Erro no servidor ao apagar base");
 
+                        // Clear records for this schema locally
+                        setRecords(prev => prev.filter(r => r.reportId !== activeSchema.id));
+                        localStorage.setItem("crm_records_backup", JSON.stringify(records.filter(r => r.reportId !== activeSchema.id)));
+                        
                         showToast(`Base "${activeSchema.name}" limpa com sucesso.`);
                       } catch (err) {
-                        showToast("Erro ao limpar base. Atualizando registros...");
-                        window.location.reload(); // Simple reload to revert state
+                        showToast("Erro ao limpar base. Tente novamente.");
+                        console.error(err);
                       }
                     }
                   }}
