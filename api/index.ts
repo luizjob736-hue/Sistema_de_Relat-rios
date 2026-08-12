@@ -193,22 +193,29 @@ app.post("/api/records/bulk", async (req, res) => {
     const { records, mode, reportId } = req.body;
     
     if (mode === "overwrite") {
-      await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+      if (reportId === 'default' || reportId === '1') {
+        await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${reportId}`;
+      } else {
+        await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+      }
     }
     
-    if (records.length > 0) {
+    if (records && records.length > 0) {
       const chunkSize = 1000;
       for (let i = 0; i < records.length; i += chunkSize) {
         const chunk = records.slice(i, i + chunkSize);
         await db.insert(dynamicRecords).values(chunk)
           .onConflictDoUpdate({
             target: dynamicRecords.id,
-            set: { data: sql`EXCLUDED.data` }
+            set: {
+              data: sql`EXCLUDED.data`,
+              reportId: sql`EXCLUDED.report_id` as any
+            }
           });
       }
     }
     
-    res.json({ success: true });
+    res.json({ success: true, count: records ? records.length : 0 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save records in bulk" });
@@ -219,8 +226,7 @@ app.put("/api/records/bulk-update", async (req, res) => {
   try {
     const { ids, updatedData } = req.body;
     
-    if (ids.length > 0) {
-      const formattedIds = ids.map((id: string) => `'${id}'`).join(',');
+    if (ids && ids.length > 0) {
       const jsonUpdate = JSON.stringify(updatedData);
       
       await sql`
@@ -253,7 +259,11 @@ app.delete("/api/records/bulk", async (req, res) => {
 app.delete("/api/records/report/:reportId", async (req, res) => {
   try {
     const { reportId } = req.params;
-    await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+    if (reportId === 'default' || reportId === '1') {
+      await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${reportId}`;
+    } else {
+      await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+    }
     res.json({ success: true });
   } catch (err) {
     console.error(err);

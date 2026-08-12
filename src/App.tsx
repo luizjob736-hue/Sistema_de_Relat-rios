@@ -196,76 +196,89 @@ function App() {
     }
     const isOverwrite = mode === "overwrite";
     let finalRecordsToSave: DynamicRecord[] = [];
+    let updatedRecordsState: DynamicRecord[] = [];
+    let updatedCount = 0;
+    let addedCount = 0;
     
     if (isOverwrite) {
       const remaining = records.filter(r => r.reportId !== activeSchema.id);
-      setRecords([...remaining, ...newRecords]);
+      updatedRecordsState = [...remaining, ...newRecords];
       finalRecordsToSave = newRecords;
     } else {
-      let updatedCount = 0;
-      let addedCount = 0;
+      const updated = [...records];
       
-      setRecords((prev) => {
-        const updated = [...prev];
-        
-        newRecords.forEach((newRec) => {
-          const cpfField = activeSchema.fields.find(f => f.label.toLowerCase().includes('cpf') || f.id.toLowerCase().includes('cpf'))?.id;
-          const nomeField = activeSchema.fields.find(f => f.label.toLowerCase().includes('nome') && !f.label.toLowerCase().includes('base'))?.id;
+      newRecords.forEach((newRec) => {
+        const cpfField = activeSchema.fields.find(f => f.label.toLowerCase().includes('cpf') || f.id.toLowerCase().includes('cpf'))?.id;
+        const nomeField = activeSchema.fields.find(f => f.label.toLowerCase().includes('nome') && !f.label.toLowerCase().includes('base'))?.id;
 
-          const existingIndex = updated.findIndex((r) => {
-            if (r.reportId !== activeSchema.id) return false;
-            let match = false;
-            if (cpfField && r.data[cpfField] && r.data[cpfField] !== "-") {
-              match = r.data[cpfField] === newRec.data[cpfField];
-            } else if (nomeField && r.data[nomeField] && r.data[nomeField] !== "-") {
-              match = r.data[nomeField].toLowerCase() === newRec.data[nomeField].toLowerCase();
+        const existingIndex = updated.findIndex((r) => {
+          if (r.reportId !== activeSchema.id) return false;
+          let match = false;
+          if (cpfField && r.data[cpfField] && r.data[cpfField] !== "-") {
+            match = r.data[cpfField] === newRec.data[cpfField];
+          } else if (nomeField && r.data[nomeField] && r.data[nomeField] !== "-") {
+            match = r.data[nomeField].toLowerCase() === newRec.data[nomeField].toLowerCase();
+          }
+          return match;
+        });
+
+        if (existingIndex !== -1) {
+          const existingData = updated[existingIndex].data;
+          const mergedData = { ...existingData };
+          
+          Object.keys(newRec.data).forEach(k => {
+            const incomingValue = newRec.data[k];
+            if (
+              incomingValue !== undefined &&
+              incomingValue !== null &&
+              incomingValue.trim() !== "" &&
+              incomingValue.trim() !== "-"
+            ) {
+              mergedData[k] = incomingValue;
             }
-            return match;
           });
 
-          if (existingIndex !== -1) {
-            const existingData = updated[existingIndex].data;
-            const mergedData = { ...existingData };
-            
-            Object.keys(newRec.data).forEach(k => {
-              const incomingValue = newRec.data[k];
-              if (
-                incomingValue !== undefined &&
-                incomingValue !== null &&
-                incomingValue.trim() !== "" &&
-                incomingValue.trim() !== "-"
-              ) {
-                mergedData[k] = incomingValue;
-              }
-            });
-
-            updated[existingIndex] = {
-              ...updated[existingIndex],
-              data: mergedData
-            };
-            finalRecordsToSave.push(updated[existingIndex]);
-            updatedCount++;
-          } else {
-            updated.push(newRec);
-            finalRecordsToSave.push(newRec);
-            addedCount++;
-          }
-        });
-        
-        showToast(`${addedCount} novos registros, ${updatedCount} atualizados com sucesso!`);
-        return updated;
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            data: mergedData
+          };
+          finalRecordsToSave.push(updated[existingIndex]);
+          updatedCount++;
+        } else {
+          updated.push(newRec);
+          finalRecordsToSave.push(newRec);
+          addedCount++;
+        }
       });
+
+      updatedRecordsState = updated;
     }
 
+    setRecords(updatedRecordsState);
+
     try {
-      await fetch("/api/records/bulk", {
+      const response = await fetch("/api/records/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records: finalRecordsToSave, mode: isOverwrite ? "overwrite" : "append", reportId: activeSchema.id }),
+        body: JSON.stringify({
+          records: finalRecordsToSave,
+          mode: isOverwrite ? "overwrite" : "append",
+          reportId: activeSchema.id
+        }),
       });
-      if (isOverwrite) showToast(`${newRecords.length} registros importados. Banco substituído!`);
+
+      if (!response.ok) {
+        throw new Error("Falha HTTP " + response.status);
+      }
+
+      if (isOverwrite) {
+        showToast(`${newRecords.length} registros importados e salvos permanentemente no banco!`);
+      } else {
+        showToast(`${addedCount} novos registros e ${updatedCount} atualizações salvas permanentemente no banco!`);
+      }
     } catch (err) {
-      showToast("Erro de conexão ao salvar base importada.");
+      console.error("Erro na persistência dos dados:", err);
+      showToast("Erro ao salvar base no banco de dados.");
     }
     
     setIsImportModalOpen(false);

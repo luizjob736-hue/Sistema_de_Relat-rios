@@ -45,8 +45,18 @@ export function ClientTable({
     }
   };
 
+  const getReportRecords = (allRecs: DynamicRecord[], schemaId: string) => {
+    return allRecs.filter(r => {
+      if (r.reportId === schemaId) return true;
+      if (!r.reportId || r.reportId === 'default' || r.reportId === '1') {
+        if (schemaId === 'default' || schemaId === '1') return true;
+      }
+      return false;
+    });
+  };
+
   const filteredAndSortedRecords = useMemo(() => {
-    let result = records.filter(r => r.reportId === schema.id);
+    let result = getReportRecords(records, schema.id);
 
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
@@ -69,8 +79,7 @@ export function ClientTable({
   }, [records, searchTerm, sortField, sortOrder, schema.id]);
 
   const reportStats = useMemo(() => {
-    const allReportRecords = records.filter(r => r.reportId === schema.id);
-    const totalBase = allReportRecords.length;
+    const allReportRecords = getReportRecords(records, schema.id);
 
     const tentativaField = schema.fields.find(f => f.id.toLowerCase().includes('tentativa') || f.label.toLowerCase().includes('tentativa'));
     const statusField = schema.fields.find(f => f.id.toLowerCase().includes('status') || f.label.toLowerCase().includes('status'));
@@ -116,7 +125,8 @@ export function ClientTable({
       }
     });
 
-    const pendenciasDiscagem = totalBase - baseTrabalhada;
+    const totalBase = Math.max(allReportRecords.length, baseTrabalhada);
+    const pendenciasDiscagem = Math.max(0, totalBase - baseTrabalhada);
 
     return {
       totalBase,
@@ -128,7 +138,7 @@ export function ClientTable({
   }, [records, schema]);
 
   const observacaoBreakdown = useMemo(() => {
-    const allReportRecords = records.filter(r => r.reportId === schema.id);
+    const allReportRecords = getReportRecords(records, schema.id);
     const obsField = schema.fields.find(f => f.id.toLowerCase().includes('observa') || f.label.toLowerCase().includes('observa'));
     
     if (!obsField) return { counts: [], total: 0 };
