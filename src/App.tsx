@@ -650,7 +650,7 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden p-6">
         <section className="h-full bg-white border-4 border-[#141414] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col relative z-0">
-          {activeSchema && (
+          {activeSchema ? (
             <ErrorBoundary key={activeSchemaId}>
               <ClientTable
                 schema={activeSchema}
@@ -661,6 +661,16 @@ function App() {
                 onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
               />
             </ErrorBoundary>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-6">
+              <div className="w-16 h-16 bg-[#F2F1EB] border-2 border-[#141414] flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                <LayoutGrid className="text-[#141414]" size={32} />
+              </div>
+              <h2 className="text-xl font-black uppercase tracking-tight">Nenhuma guia encontrada</h2>
+              <p className="text-sm text-slate-600 font-mono">
+                Para começar, crie uma nova guia no botão acima ou importe dados para visualizar seus relatórios.
+              </p>
+            </div>
           )}
         </section>
       </main>

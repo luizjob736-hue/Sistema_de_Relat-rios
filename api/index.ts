@@ -41,9 +41,7 @@ function loadFallbackData(): FallbackData {
 
   const defaultData: FallbackData = {
     users: initialUsers,
-    schemas: [
-      { id: 'default', name: 'Relatório Padrão', fields: defaultFields }
-    ],
+    schemas: [],
     records: []
   };
 
@@ -390,12 +388,6 @@ app.post("/api/records", async (req, res) => {
 
     let dbSuccess = false;
     try {
-      await sql`
-        INSERT INTO report_schemas (id, name, fields)
-        VALUES (${rId}, 'Relatório Padrão', '[]'::jsonb)
-        ON CONFLICT (id) DO NOTHING
-      `;
-
       const dataJson = JSON.stringify(newRecord.data || {});
       await sql`
         INSERT INTO dynamic_records (id, report_id, data)
@@ -594,13 +586,6 @@ app.post("/api/records/bulk", async (req, res) => {
       
       if (records && records.length > 0) {
         const reportIds = Array.from(new Set(records.map((r: any) => r.reportId || targetReportId)));
-        for (const rId of reportIds) {
-          await sql`
-            INSERT INTO report_schemas (id, name, fields)
-            VALUES (${rId as string}, 'Relatório Padrão', '[]'::jsonb)
-            ON CONFLICT (id) DO NOTHING
-          `;
-        }
 
         const chunkSize = 500;
         for (let i = 0; i < records.length; i += chunkSize) {
