@@ -249,31 +249,31 @@ app.post("/api/records/bulk", async (req, res) => {
     }
     
     if (records && records.length > 0) {
-      const chunkSize = 1000;
+      const reportIds = Array.from(new Set(records.map((r: any) => r.reportId || targetReportId)));
+      for (const rId of reportIds) {
+        await sql`
+          INSERT INTO report_schemas (id, name, fields)
+          VALUES (${rId as string}, 'Relatório Padrão', '[]'::jsonb)
+          ON CONFLICT (id) DO NOTHING
+        `;
+      }
+
+      const chunkSize = 500;
       for (let i = 0; i < records.length; i += chunkSize) {
         const chunk = records.slice(i, i + chunkSize);
-        
-        const reportIds = Array.from(new Set(chunk.map((r: any) => r.reportId || targetReportId)));
-        for (const rId of reportIds) {
-          await sql`
-            INSERT INTO report_schemas (id, name, fields)
-            VALUES (${rId as string}, 'Relatório Padrão', '[]'::jsonb)
-            ON CONFLICT (id) DO NOTHING
-          `;
-        }
-
-        const ids = chunk.map((r: any) => r.id);
-        const repIds = chunk.map((r: any) => r.reportId || targetReportId);
-        const datas = chunk.map((r: any) => JSON.stringify(r.data || {}));
-
-        await sql`
-          INSERT INTO dynamic_records (id, report_id, data)
-          SELECT u.id, u.report_id, u.data::jsonb
-          FROM UNNEST(${ids}::text[], ${repIds}::text[], ${datas}::text[]) AS u(id, report_id, data)
-          ON CONFLICT (id) DO UPDATE SET
-            data = EXCLUDED.data,
-            report_id = EXCLUDED.report_id
-        `;
+        await sql.begin(async (transaction) => {
+          for (const rec of chunk) {
+            const recReportId = rec.reportId || targetReportId;
+            const dataJson = JSON.stringify(rec.data || {});
+            await transaction`
+              INSERT INTO dynamic_records (id, report_id, data)
+              VALUES (${rec.id}, ${recReportId}, ${dataJson}::jsonb)
+              ON CONFLICT (id) DO UPDATE SET
+                data = EXCLUDED.data,
+                report_id = EXCLUDED.report_id
+            `;
+          }
+        });
       }
     }
     

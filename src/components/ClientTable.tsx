@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3 } from "lucide-react";
-import { DynamicRecord, ReportSchema, UserRole } from "../types";
+import { DynamicRecord, ReportSchema, UserRole, FieldDef } from "../types";
 import { exportDynamicCSV, formatCurrentDateTime } from "../utils";
 
 interface ClientTableProps {
@@ -45,20 +45,34 @@ export function ClientTable({
     }
   };
 
+  const getCellValue = (recordData: Record<string, string>, field: FieldDef): string => {
+    if (!recordData) return "-";
+    if (recordData[field.id] !== undefined && recordData[field.id] !== "") {
+      return recordData[field.id];
+    }
+    if (recordData[field.label] !== undefined && recordData[field.label] !== "") {
+      return recordData[field.label];
+    }
+    const normLabel = field.label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    for (const [key, val] of Object.entries(recordData)) {
+      const normKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      if (normKey === normLabel && val !== undefined && val !== "") {
+        return val;
+      }
+    }
+    return "-";
+  };
+
   const getReportRecords = (allRecs: DynamicRecord[], schemaId: string) => {
     if (!allRecs || allRecs.length === 0) return [];
     
-    const filtered = allRecs.filter(r => {
+    return allRecs.filter(r => {
       if (r.reportId === schemaId) return true;
       if (!r.reportId || r.reportId === 'default' || r.reportId === '1') {
         if (!schemaId || schemaId === 'default' || schemaId === '1') return true;
       }
       return false;
     });
-
-    if (filtered.length > 0) return filtered;
-
-    return allRecs;
   };
 
   const filteredAndSortedRecords = useMemo(() => {
@@ -67,14 +81,18 @@ export function ClientTable({
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
       result = result.filter(record => 
-        Object.values(record.data).some(val => val && val.toLowerCase().includes(lowerSearch))
+        schema.fields.some(f => {
+          const val = getCellValue(record.data, f);
+          return val && val !== '-' && val.toLowerCase().includes(lowerSearch);
+        }) || Object.values(record.data).some(val => val && val.toLowerCase().includes(lowerSearch))
       );
     }
 
     if (sortField) {
+      const sortFieldDef = schema.fields.find(f => f.id === sortField);
       result.sort((a, b) => {
-        const valA = (a.data[sortField] || "").toLowerCase();
-        const valB = (b.data[sortField] || "").toLowerCase();
+        const valA = sortFieldDef ? getCellValue(a.data, sortFieldDef).toLowerCase() : (a.data[sortField] || "").toLowerCase();
+        const valB = sortFieldDef ? getCellValue(b.data, sortFieldDef).toLowerCase() : (b.data[sortField] || "").toLowerCase();
         if (valA < valB) return sortOrder === "asc" ? -1 : 1;
         if (valA > valB) return sortOrder === "asc" ? 1 : -1;
         return 0;
@@ -82,7 +100,7 @@ export function ClientTable({
     }
 
     return result;
-  }, [records, searchTerm, sortField, sortOrder, schema.id]);
+  }, [records, searchTerm, sortField, sortOrder, schema]);
 
   const reportStats = useMemo(() => {
     const allReportRecords = getReportRecords(records, schema.id);
@@ -96,15 +114,19 @@ export function ClientTable({
     let semContatoEfetivo = 0;
 
     allReportRecords.forEach(r => {
-      const hasTentativa = tentativaField && r.data[tentativaField.id] && r.data[tentativaField.id] !== '-' && r.data[tentativaField.id].trim() !== '';
-      const hasStatus = statusField && r.data[statusField.id] && r.data[statusField.id] !== '-' && r.data[statusField.id].trim() !== '';
-      const hasObs = obsField && r.data[obsField.id] && r.data[obsField.id] !== '-' && r.data[obsField.id].trim() !== '';
+      const tentVal = tentativaField ? getCellValue(r.data, tentativaField) : '-';
+      const statVal = statusField ? getCellValue(r.data, statusField) : '-';
+      const obsVal = obsField ? getCellValue(r.data, obsField) : '-';
+
+      const hasTentativa = tentVal !== '-' && tentVal.trim() !== '';
+      const hasStatus = statVal !== '-' && statVal.trim() !== '';
+      const hasObs = obsVal !== '-' && obsVal.trim() !== '';
       
       if (hasTentativa || hasStatus || hasObs) {
         baseTrabalhada++;
         
-        const obsValue = hasObs ? r.data[obsField.id].toLowerCase() : '';
-        const statusValue = hasStatus ? r.data[statusField.id].toLowerCase() : '';
+        const obsValue = hasObs ? obsVal.toLowerCase() : '';
+        const statusValue = hasStatus ? statVal.toLowerCase() : '';
         
         let isContato = false;
         
@@ -153,7 +175,7 @@ export function ClientTable({
     let total = 0;
     
     allReportRecords.forEach(r => {
-      let val = r.data[obsField.id];
+      let val = getCellValue(r.data, obsField);
       if (!val || val === '-' || val.trim() === '') {
         return;
       }
@@ -466,40 +488,44 @@ export function ClientTable({
                     />
                   </td>
                   
-                  {schema.fields.map(field => (
-                    <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={item.data[field.id]}>
-                      {field.readOnly || !canEdit ? (
-                        <span className={field.id === 'nome' || field.id === 'cpf' ? 'font-bold text-[#141414]' : 'text-slate-700'}>
-                          {item.data[field.id] || "-"}
-                        </span>
-                      ) : (
-                        field.type === 'list' ? (
-                          <select
-                            className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full"
-                            value={item.data[field.id] || "-"}
-                            onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                          >
-                            <option value="-">-</option>
-                            {field.options?.map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                            {item.data[field.id] &&
-                             item.data[field.id] !== "-" &&
-                             !field.options?.includes(item.data[field.id]) && (
-                              <option value={item.data[field.id]}>{item.data[field.id]}</option>
-                            )}
-                          </select>
+                  {schema.fields.map(field => {
+                    const cellVal = getCellValue(item.data, field);
+                    const isHighlight = field.id === 'nome' || field.id === 'cpf' || field.label.toLowerCase().includes('nome') || field.label.toLowerCase().includes('cpf');
+                    return (
+                      <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={cellVal}>
+                        {field.readOnly || !canEdit ? (
+                          <span className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-700'}>
+                            {cellVal}
+                          </span>
                         ) : (
-                          <input
-                            type="text"
-                            className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
-                            value={item.data[field.id] || ""}
-                            onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                          />
-                        )
-                      )}
-                    </td>
-                  ))}
+                          field.type === 'list' ? (
+                            <select
+                              className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full"
+                              value={cellVal}
+                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                            >
+                              <option value="-">-</option>
+                              {field.options?.map(opt => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                              {cellVal &&
+                               cellVal !== "-" &&
+                               !field.options?.includes(cellVal) && (
+                                <option value={cellVal}>{cellVal}</option>
+                              )}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
+                              value={cellVal === "-" ? "" : cellVal}
+                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                            />
+                          )
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             )}

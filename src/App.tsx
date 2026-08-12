@@ -58,6 +58,22 @@ function App() {
   }, [records]);
 
   useEffect(() => {
+    if (schemas && schemas.length > 0) {
+      try {
+        localStorage.setItem("crm_schemas_backup", JSON.stringify(schemas));
+      } catch (e) {
+        console.error("localStorage schemas backup error", e);
+      }
+    }
+  }, [schemas]);
+
+  useEffect(() => {
+    if (activeSchemaId) {
+      localStorage.setItem("crm_active_tab", activeSchemaId);
+    }
+  }, [activeSchemaId]);
+
+  useEffect(() => {
     if (!currentUser) {
       setIsLoading(false);
       return;
@@ -72,7 +88,28 @@ function App() {
         let s = schemasRes.ok ? await schemasRes.json() : [];
         let r = recordsRes.ok ? await recordsRes.json() : [];
 
-        // Check local backup if server returned empty
+        // Restore custom schemas from local backup if any are missing
+        const localSchemasBackup = localStorage.getItem("crm_schemas_backup");
+        if (localSchemasBackup) {
+          try {
+            const parsedSchemas = JSON.parse(localSchemasBackup);
+            if (Array.isArray(parsedSchemas) && parsedSchemas.length > 0) {
+              const existingIds = new Set(s.map((sch: ReportSchema) => sch.id));
+              parsedSchemas.forEach((ls: ReportSchema) => {
+                if (!existingIds.has(ls.id)) {
+                  s.push(ls);
+                  fetch("/api/schemas", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(ls)
+                  }).catch(console.error);
+                }
+              });
+            }
+          } catch (e) {}
+        }
+
+        // Check local backup if server returned empty records
         if (!r || r.length === 0) {
           const localBackup = localStorage.getItem("crm_records_backup");
           if (localBackup) {
@@ -101,7 +138,12 @@ function App() {
           setActiveSchemaId(defaultSchema.id);
         } else {
           setSchemas(s);
-          setActiveSchemaId(s[0].id);
+          const savedActiveTab = localStorage.getItem("crm_active_tab");
+          if (savedActiveTab && s.some((sch: ReportSchema) => sch.id === savedActiveTab)) {
+            setActiveSchemaId(savedActiveTab);
+          } else {
+            setActiveSchemaId(s[0].id);
+          }
         }
 
         if ((!r || r.length === 0) && (!s || s.length === 0)) {
