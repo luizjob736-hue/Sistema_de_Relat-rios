@@ -46,18 +46,22 @@ export function ClientTable({
   };
 
   const getCellValue = (recordData: Record<string, string>, field: FieldDef): string => {
-    if (!recordData) return "-";
-    if (recordData[field.id] !== undefined && recordData[field.id] !== "") {
+    if (!recordData || !field) return "-";
+    if (field.id && recordData[field.id] !== undefined && recordData[field.id] !== "") {
       return recordData[field.id];
     }
-    if (recordData[field.label] !== undefined && recordData[field.label] !== "") {
+    if (field.label && recordData[field.label] !== undefined && recordData[field.label] !== "") {
       return recordData[field.label];
     }
-    const normLabel = field.label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    const labelText = field.label || field.id || "";
+    if (!labelText) return "-";
+    const normLabel = labelText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
     for (const [key, val] of Object.entries(recordData)) {
-      const normKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-      if (normKey === normLabel && val !== undefined && val !== "") {
-        return val;
+      if (key) {
+        const normKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+        if (normKey === normLabel && val !== undefined && val !== "") {
+          return val;
+        }
       }
     }
     return "-";
@@ -67,8 +71,8 @@ export function ClientTable({
     if (!allRecs || allRecs.length === 0) return [];
     
     return allRecs.filter(r => {
-      if (r.reportId === schemaId) return true;
-      if (!r.reportId || r.reportId === 'default' || r.reportId === '1') {
+      if (r && r.reportId === schemaId) return true;
+      if (r && (!r.reportId || r.reportId === 'default' || r.reportId === '1')) {
         if (!schemaId || schemaId === 'default' || schemaId === '1') return true;
       }
       return false;
@@ -76,23 +80,24 @@ export function ClientTable({
   };
 
   const filteredAndSortedRecords = useMemo(() => {
-    let result = getReportRecords(records, schema.id);
+    let result = getReportRecords(records, schema?.id || '');
+    const fields = schema?.fields || [];
 
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
       result = result.filter(record => 
-        schema.fields.some(f => {
-          const val = getCellValue(record.data, f);
+        fields.some(f => {
+          const val = getCellValue(record?.data || {}, f);
           return val && val !== '-' && val.toLowerCase().includes(lowerSearch);
-        }) || Object.values(record.data).some(val => val && val.toLowerCase().includes(lowerSearch))
+        }) || Object.values(record?.data || {}).some(val => val && typeof val === 'string' && val.toLowerCase().includes(lowerSearch))
       );
     }
 
     if (sortField) {
-      const sortFieldDef = schema.fields.find(f => f.id === sortField);
+      const sortFieldDef = fields.find(f => f && f.id === sortField);
       result.sort((a, b) => {
-        const valA = sortFieldDef ? getCellValue(a.data, sortFieldDef).toLowerCase() : (a.data[sortField] || "").toLowerCase();
-        const valB = sortFieldDef ? getCellValue(b.data, sortFieldDef).toLowerCase() : (b.data[sortField] || "").toLowerCase();
+        const valA = sortFieldDef ? getCellValue(a?.data || {}, sortFieldDef).toLowerCase() : ((a?.data?.[sortField]) || "").toLowerCase();
+        const valB = sortFieldDef ? getCellValue(b?.data || {}, sortFieldDef).toLowerCase() : ((b?.data?.[sortField]) || "").toLowerCase();
         if (valA < valB) return sortOrder === "asc" ? -1 : 1;
         if (valA > valB) return sortOrder === "asc" ? 1 : -1;
         return 0;
@@ -103,20 +108,21 @@ export function ClientTable({
   }, [records, searchTerm, sortField, sortOrder, schema]);
 
   const reportStats = useMemo(() => {
-    const allReportRecords = getReportRecords(records, schema.id);
+    const allReportRecords = getReportRecords(records, schema?.id || '');
+    const fields = schema?.fields || [];
 
-    const tentativaField = schema.fields.find(f => f.id.toLowerCase().includes('tentativa') || f.label.toLowerCase().includes('tentativa'));
-    const statusField = schema.fields.find(f => f.id.toLowerCase().includes('status') || f.label.toLowerCase().includes('status'));
-    const obsField = schema.fields.find(f => f.id.toLowerCase().includes('observa') || f.label.toLowerCase().includes('observa'));
+    const tentativaField = fields.find(f => f && ((f.id && f.id.toLowerCase().includes('tentativa')) || (f.label && f.label.toLowerCase().includes('tentativa'))));
+    const statusField = fields.find(f => f && ((f.id && f.id.toLowerCase().includes('status')) || (f.label && f.label.toLowerCase().includes('status')) || (f.id && f.id.toLowerCase().includes('stts')) || (f.label && f.label.toLowerCase().includes('stts'))));
+    const obsField = fields.find(f => f && ((f.id && f.id.toLowerCase().includes('observa')) || (f.label && f.label.toLowerCase().includes('observa'))));
 
     let baseTrabalhada = 0;
     let contatoEfetivo = 0;
     let semContatoEfetivo = 0;
 
     allReportRecords.forEach(r => {
-      const tentVal = tentativaField ? getCellValue(r.data, tentativaField) : '-';
-      const statVal = statusField ? getCellValue(r.data, statusField) : '-';
-      const obsVal = obsField ? getCellValue(r.data, obsField) : '-';
+      const tentVal = tentativaField ? getCellValue(r?.data || {}, tentativaField) : '-';
+      const statVal = statusField ? getCellValue(r?.data || {}, statusField) : '-';
+      const obsVal = obsField ? getCellValue(r?.data || {}, obsField) : '-';
 
       const hasTentativa = tentVal !== '-' && tentVal.trim() !== '';
       const hasStatus = statVal !== '-' && statVal.trim() !== '';
@@ -406,7 +412,7 @@ export function ClientTable({
             <span className="text-[10px] uppercase font-black tracking-widest text-[#141414]">
               Ação em Massa ({selectedIds.length}):
             </span>
-            {schema.fields.filter(f => !f.readOnly).map(field => (
+            {(schema?.fields || []).filter(f => f && !f.readOnly).map(field => (
               <div key={`bulk_${field.id}`} className="flex items-center gap-1 bg-[#F2F1EB] border-2 border-[#141414] pl-1 pr-1 py-1">
                 {field.type === 'list' ? (
                   <select
@@ -414,7 +420,7 @@ export function ClientTable({
                     value={bulkEdits[field.id] || ""}
                     onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
                   >
-                    <option value="" disabled>Alterar {field.label}</option>
+                    <option value="" disabled>Alterar {field.label || field.id}</option>
                     {field.options?.map(opt => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
@@ -422,7 +428,7 @@ export function ClientTable({
                 ) : (
                   <input
                     type="text"
-                    placeholder={`Novo ${field.label} (ou 'agora')`}
+                    placeholder={`Novo ${field.label || field.id} (ou 'agora')`}
                     value={bulkEdits[field.id] || ""}
                     onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
                     className="bg-white border border-[#141414] px-1 text-[10px] font-mono outline-none max-w-[150px]"
@@ -454,10 +460,10 @@ export function ClientTable({
                   className="rounded-none border-2 border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-3.5 w-3.5"
                 />
               </th>
-              {schema.fields.map(field => (
+              {(schema?.fields || []).map(field => (
                 <th key={field.id} className="px-3 py-2 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
                   <div className="flex items-center gap-1 font-extrabold">
-                    <span>{field.label}</span>
+                    <span>{field.label || field.id}</span>
                     {sortField === field.id && (sortOrder === "asc" ? "▲" : "▼")}
                   </div>
                 </th>
@@ -467,7 +473,7 @@ export function ClientTable({
           <tbody className="divide-y divide-[#141414]/30 text-xs text-[#141414] bg-[#E4E3E0]">
             {paginatedRecords.length === 0 ? (
               <tr>
-                <td colSpan={schema.fields.length + 1} className="px-6 py-12 text-center text-slate-600 bg-white/20">
+                <td colSpan={(schema?.fields?.length || 0) + 1} className="px-6 py-12 text-center text-slate-600 bg-white/20">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <span className="font-mono text-xs font-bold uppercase">Nenhum registro encontrado nesta base.</span>
                   </div>
@@ -488,9 +494,9 @@ export function ClientTable({
                     />
                   </td>
                   
-                  {schema.fields.map(field => {
-                    const cellVal = getCellValue(item.data, field);
-                    const isHighlight = field.id === 'nome' || field.id === 'cpf' || field.label.toLowerCase().includes('nome') || field.label.toLowerCase().includes('cpf');
+                  {(schema?.fields || []).map(field => {
+                    const cellVal = getCellValue(item?.data || {}, field);
+                    const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
                     return (
                       <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={cellVal}>
                         {field.readOnly || !canEdit ? (

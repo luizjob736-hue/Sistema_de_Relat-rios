@@ -5,6 +5,7 @@ import { ClientTable } from "./components/ClientTable";
 import { SchemaBuilderModal } from "./components/SchemaBuilderModal";
 import { LoginScreen } from "./components/LoginScreen";
 import { UserManagementModal } from "./components/UserManagementModal";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicRecord, ReportSchema, UserRole, defaultSchema } from "./types";
 import { getFallbackRecords } from "./utils";
 
@@ -528,14 +529,16 @@ function App() {
       <main className="flex-1 overflow-hidden p-6">
         <section className="h-full bg-white border-4 border-[#141414] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col relative z-0">
           {activeSchema && (
-            <ClientTable
-              schema={activeSchema}
-              records={records}
-              userRole={userRole || 'viewer'}
-              onUpdateRecord={handleUpdateRecord}
-              onUpdateRecordsBulk={handleUpdateRecordsBulk}
-              onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
-            />
+            <ErrorBoundary key={activeSchemaId}>
+              <ClientTable
+                schema={activeSchema}
+                records={records}
+                userRole={userRole || 'viewer'}
+                onUpdateRecord={handleUpdateRecord}
+                onUpdateRecordsBulk={handleUpdateRecordsBulk}
+                onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
+              />
+            </ErrorBoundary>
           )}
         </section>
       </main>

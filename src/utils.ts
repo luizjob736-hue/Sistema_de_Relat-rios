@@ -106,13 +106,13 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
     headerCols.pop();
   }
 
-  const expectedFields = schema.fields;
-  const expectedLabels = expectedFields.map(f => f.label);
+  const expectedFields = schema?.fields || [];
+  const expectedLabels = expectedFields.map(f => f?.label || f?.id || "Coluna");
 
   // Strict check: Header count & exact position titles matching
   if (headerCols.length < expectedFields.length) {
     throw new Error(
-      `O arquivo CSV possui apenas ${headerCols.length} colunas, mas a guia '${schema.name}' exige ${expectedFields.length} colunas.\nEstrutura esperada: ${expectedLabels.join(" ; ")}`
+      `O arquivo CSV possui apenas ${headerCols.length} colunas, mas a guia '${schema?.name || 'Relatório'}' exige ${expectedFields.length} colunas.\nEstrutura esperada: ${expectedLabels.join(" ; ")}`
     );
   }
 
@@ -120,18 +120,18 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
   expectedFields.forEach((field, index) => {
     const headerTitle = headerCols[index] || "";
     const normHeader = normalizeHeader(headerTitle);
-    const normLabel = normalizeHeader(field.label);
-    const normId = normalizeHeader(field.id);
+    const normLabel = normalizeHeader(field?.label || "");
+    const normId = normalizeHeader(field?.id || "");
 
     // Exact or normalized match
     if (normHeader !== normLabel && normHeader !== normId) {
-      mismatchedCols.push(`Coluna ${index + 1}: Recebido "${headerTitle}", Esperado "${field.label}"`);
+      mismatchedCols.push(`Coluna ${index + 1}: Recebido "${headerTitle}", Esperado "${field?.label || field?.id}"`);
     }
   });
 
   if (mismatchedCols.length > 0) {
     throw new Error(
-      `Os títulos ou a ordem das colunas no CSV estão incorretos para a guia '${schema.name}'.\n\nDivergências encontradas:\n${mismatchedCols.join("\n")}\n\nTítulos e ordem esperados:\n${expectedLabels.join(" ; ")}`
+      `Os títulos ou a ordem das colunas no CSV estão incorretos para a guia '${schema?.name || 'Relatório'}'.\n\nDivergências encontradas:\n${mismatchedCols.join("\n")}\n\nTítulos e ordem esperados:\n${expectedLabels.join(" ; ")}`
     );
   }
 
@@ -147,22 +147,27 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
     
     // Initialize default values
     expectedFields.forEach(f => {
-      data[f.id] = (f.type === 'list' && f.options && f.options.length > 0) ? (f.options.includes("-") ? "-" : f.options[0]) : "-";
+      if (f && f.id) {
+        data[f.id] = (f.type === 'list' && f.options && f.options.length > 0) ? (f.options.includes("-") ? "-" : f.options[0]) : "-";
+      }
     });
 
     expectedFields.forEach((field, index) => {
+      if (!field || !field.id) return;
       let cleaned = cols[index] !== undefined ? cleanColumn(cols[index]) : "";
       
+      const fId = field.id ? field.id.toLowerCase() : "";
+      const fLabel = field.label ? field.label.toLowerCase() : "";
+
       // Normalize Attempt 1 Date/Time
-      if (field.id.toLowerCase().includes("tentativa") || field.label.toLowerCase().includes("tentativa")) {
+      if (fId.includes("tentativa") || fLabel.includes("tentativa")) {
         cleaned = normalizeDateTime(cleaned);
       } else if (field.type === 'list' && field.options) {
         // Normalize if matches predefined option case-insensitively
-        const matchedOpt = field.options.find(o => o.toLowerCase() === cleaned.toLowerCase().trim());
+        const matchedOpt = field.options.find(o => o && cleaned && o.toLowerCase() === cleaned.toLowerCase().trim());
         if (matchedOpt) {
           cleaned = matchedOpt;
         }
-        // If it doesn't match a predefined option, keep `cleaned` as free text as-is!
       }
 
       if (!cleaned || cleaned.trim() === "") {

@@ -97,7 +97,7 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
     if (parsedPreview.length === 0) return;
 
     // Inject Base name if the schema contains a column named 'Base'
-    const baseField = schema.fields.find(f => f.label.toLowerCase().includes('base') || f.id.toLowerCase().includes('base'));
+    const baseField = (schema?.fields || []).find(f => f && ((f.label && f.label.toLowerCase().includes('base')) || (f.id && f.id.toLowerCase().includes('base'))));
     
     const recordsToImport = parsedPreview.map(item => {
       if (nomeBase.trim() && baseField) {
