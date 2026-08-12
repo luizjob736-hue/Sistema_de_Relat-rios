@@ -765,11 +765,11 @@ app.delete("/api/records/report/:reportId", async (req, res) => {
       if (reportId === 'default' || reportId === '1') {
         await sql`DELETE FROM dynamic_records WHERE report_id = 'default' OR report_id = '1' OR report_id = ${reportId}`;
       } else {
-        await db.delete(dynamicRecords).where(eq(dynamicRecords.reportId, reportId));
+        await sql`DELETE FROM dynamic_records WHERE report_id = ${reportId}`;
       }
       dbSuccess = true;
     } catch (dbErr) {
-      // Secondary clear report executed
+      console.error("DB_ERR:", dbErr);
     }
 
     // Sync Cache
