@@ -94,21 +94,6 @@ function App() {
         let s: ReportSchema[] = schemasRes.ok ? await schemasRes.json() : [];
         let r: DynamicRecord[] = recordsRes.ok ? await recordsRes.json() : [];
 
-        // 1. Restore custom schemas from local backup if any are missing on server
-        const localSchemasBackup = localStorage.getItem("crm_schemas_backup");
-        if (localSchemasBackup) {
-          try {
-            const parsedSchemas = JSON.parse(localSchemasBackup);
-            if (Array.isArray(parsedSchemas) && parsedSchemas.length > 0) {
-              parsedSchemas.forEach((ls: ReportSchema) => {
-                if (ls && ls.id && ls.name) {
-                  s.push(ls);
-                }
-              });
-            }
-          } catch (e) {}
-        }
-
         // Deduplicate schemas by ID and normalized Name
         const cleanSchemas: ReportSchema[] = [];
         const seenIds = new Set<string>();
