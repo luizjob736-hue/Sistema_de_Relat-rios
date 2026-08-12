@@ -157,23 +157,12 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
       if (field.id.toLowerCase().includes("tentativa") || field.label.toLowerCase().includes("tentativa")) {
         cleaned = normalizeDateTime(cleaned);
       } else if (field.type === 'list' && field.options) {
-        // Normalize list options
-        const matchedOpt = field.options.find(o => o.toLowerCase() === cleaned.toLowerCase());
+        // Normalize if matches predefined option case-insensitively
+        const matchedOpt = field.options.find(o => o.toLowerCase() === cleaned.toLowerCase().trim());
         if (matchedOpt) {
           cleaned = matchedOpt;
-        } else {
-          const partialOpt = field.options.find(o => o !== '-' && cleaned.toLowerCase().includes(o.toLowerCase()));
-          if (partialOpt) {
-            cleaned = partialOpt;
-          } else if (cleaned.toLowerCase().includes('sucesso') && field.options.includes('Com Sucesso')) {
-            if (cleaned.toLowerCase().includes('com')) cleaned = 'Com Sucesso';
-            else if (cleaned.toLowerCase().includes('sem')) cleaned = 'Sem Sucesso';
-          } else if (cleaned.toLowerCase().includes('resposta') && field.options.includes('Sem Resposta')) {
-            cleaned = 'Sem Resposta';
-          } else if (!cleaned || cleaned.trim() === "") {
-            cleaned = "-";
-          }
         }
+        // If it doesn't match a predefined option, keep `cleaned` as free text as-is!
       }
 
       if (!cleaned || cleaned.trim() === "") {

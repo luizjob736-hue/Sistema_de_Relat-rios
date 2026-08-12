@@ -452,7 +452,7 @@ export function ClientTable({
                   
                   {schema.fields.map(field => (
                     <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={item.data[field.id]}>
-                      {field.readOnly ? (
+                      {field.readOnly || !canEdit ? (
                         <span className={field.id === 'nome' || field.id === 'cpf' ? 'font-bold text-[#141414]' : 'text-slate-700'}>
                           {item.data[field.id] || "-"}
                         </span>
@@ -467,6 +467,11 @@ export function ClientTable({
                             {field.options?.map(opt => (
                               <option key={opt} value={opt}>{opt}</option>
                             ))}
+                            {item.data[field.id] &&
+                             item.data[field.id] !== "-" &&
+                             !field.options?.includes(item.data[field.id]) && (
+                              <option value={item.data[field.id]}>{item.data[field.id]}</option>
+                            )}
                           </select>
                         ) : (
                           <input
