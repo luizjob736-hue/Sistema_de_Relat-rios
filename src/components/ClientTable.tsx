@@ -46,13 +46,19 @@ export function ClientTable({
   };
 
   const getReportRecords = (allRecs: DynamicRecord[], schemaId: string) => {
-    return allRecs.filter(r => {
+    if (!allRecs || allRecs.length === 0) return [];
+    
+    const filtered = allRecs.filter(r => {
       if (r.reportId === schemaId) return true;
       if (!r.reportId || r.reportId === 'default' || r.reportId === '1') {
-        if (schemaId === 'default' || schemaId === '1') return true;
+        if (!schemaId || schemaId === 'default' || schemaId === '1') return true;
       }
       return false;
     });
+
+    if (filtered.length > 0) return filtered;
+
+    return allRecs;
   };
 
   const filteredAndSortedRecords = useMemo(() => {
