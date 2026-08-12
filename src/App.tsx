@@ -86,10 +86,10 @@ function App() {
           fetch("/api/records")
         ]);
         
-        let s = schemasRes.ok ? await schemasRes.json() : [];
-        let r = recordsRes.ok ? await recordsRes.json() : [];
+        let s: ReportSchema[] = schemasRes.ok ? await schemasRes.json() : [];
+        let r: DynamicRecord[] = recordsRes.ok ? await recordsRes.json() : [];
 
-        // Restore custom schemas from local backup if any are missing
+        // 1. Restore custom schemas from local backup if any are missing on server
         const localSchemasBackup = localStorage.getItem("crm_schemas_backup");
         if (localSchemasBackup) {
           try {
@@ -97,7 +97,7 @@ function App() {
             if (Array.isArray(parsedSchemas) && parsedSchemas.length > 0) {
               const existingIds = new Set(s.map((sch: ReportSchema) => sch.id));
               parsedSchemas.forEach((ls: ReportSchema) => {
-                if (!existingIds.has(ls.id)) {
+                if (ls && ls.id && !existingIds.has(ls.id)) {
                   s.push(ls);
                   fetch("/api/schemas", {
                     method: "POST",
@@ -110,55 +110,74 @@ function App() {
           } catch (e) {}
         }
 
-        // Check local backup if server returned empty records
-        if (!r || r.length === 0) {
-          const localBackup = localStorage.getItem("crm_records_backup");
-          if (localBackup) {
-            try {
-              const parsedBackup = JSON.parse(localBackup);
-              if (Array.isArray(parsedBackup) && parsedBackup.length > 0) {
-                r = parsedBackup;
-                // Sync back to backend in background
-                fetch("/api/records/bulk", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ records: r, mode: "append", reportId: defaultSchema.id })
-                }).catch(console.error);
-              }
-            } catch (e) {}
-          }
-        }
-
         if (!s || s.length === 0) {
-          await fetch("/api/schemas", {
+          s = [defaultSchema];
+          fetch("/api/schemas", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(defaultSchema),
-          });
-          setSchemas([defaultSchema]);
-          setActiveSchemaId(defaultSchema.id);
-        } else {
-          setSchemas(s);
-          const savedActiveTab = localStorage.getItem("crm_active_tab");
-          if (savedActiveTab && s.some((sch: ReportSchema) => sch.id === savedActiveTab)) {
-            setActiveSchemaId(savedActiveTab);
-          } else {
-            setActiveSchemaId(s[0].id);
-          }
+          }).catch(console.error);
         }
 
-        if ((!r || r.length === 0) && (!s || s.length === 0)) {
-           const fallbacks = getFallbackRecords();
-           setRecords(fallbacks);
-           if (fallbacks.length > 0) {
-             await fetch("/api/records/bulk", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ records: fallbacks, mode: "append", reportId: defaultSchema.id })
-             });
-           }
+        setSchemas(s);
+        try {
+          localStorage.setItem("crm_schemas_backup", JSON.stringify(s));
+        } catch (e) {}
+
+        const savedActiveTab = localStorage.getItem("crm_active_tab");
+        if (savedActiveTab && s.some((sch: ReportSchema) => sch.id === savedActiveTab)) {
+          setActiveSchemaId(savedActiveTab);
         } else {
-          setRecords(r || []);
+          setActiveSchemaId(s[0].id);
+        }
+
+        // 2. Merge server records and local records so records in custom tabs (e.g. Propostas) are never wiped out
+        const localRecordsBackup = localStorage.getItem("crm_records_backup");
+        let localRecords: DynamicRecord[] = [];
+        if (localRecordsBackup) {
+          try {
+            const parsed = JSON.parse(localRecordsBackup);
+            if (Array.isArray(parsed)) {
+              localRecords = parsed;
+            }
+          } catch (e) {}
+        }
+
+        const recordMap = new Map<string, DynamicRecord>();
+        (r || []).forEach((rec) => {
+          if (rec && rec.id) {
+            recordMap.set(rec.id, rec);
+          }
+        });
+
+        const missingOnServer: DynamicRecord[] = [];
+        localRecords.forEach((localRec) => {
+          if (localRec && localRec.id && !recordMap.has(localRec.id)) {
+            recordMap.set(localRec.id, localRec);
+            missingOnServer.push(localRec);
+          }
+        });
+
+        let finalRecords = Array.from(recordMap.values());
+
+        // If completely empty across both server and local backup, load fallbacks for default schema
+        if (finalRecords.length === 0) {
+          finalRecords = getFallbackRecords();
+          missingOnServer.push(...finalRecords);
+        }
+
+        setRecords(finalRecords);
+        try {
+          localStorage.setItem("crm_records_backup", JSON.stringify(finalRecords));
+        } catch (e) {}
+
+        // Sync missing local records back to backend in background with their true reportId
+        if (missingOnServer.length > 0) {
+          fetch("/api/records/bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ records: missingOnServer, mode: "append" })
+          }).catch(console.error);
         }
       } catch (err) {
         console.error("Failed to load data", err);
