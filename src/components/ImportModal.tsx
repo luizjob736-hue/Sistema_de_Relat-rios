@@ -33,17 +33,21 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
   const handleProcessText = (text: string) => {
     setErrorMsg("");
     setSuccessMsg("");
+    if (!text.trim()) {
+      setParsedPreview([]);
+      return;
+    }
     try {
       const parsed = parseDynamicCSV(text, schema);
       if (parsed.length === 0) {
-        setErrorMsg("Nenhum dado válido encontrado. Verifique se as colunas correspondem ao relatório.");
+        setErrorMsg("Nenhum registro com dados válidos foi encontrado no arquivo.");
         setParsedPreview([]);
         return;
       }
       setParsedPreview(parsed);
-      setSuccessMsg(`${parsed.length} registros identificados com sucesso.`);
-    } catch (err) {
-      setErrorMsg("Erro ao processar os dados. Verifique o formato.");
+      setSuccessMsg(`${parsed.length} registros validados com sucesso.`);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Erro ao processar os dados. Verifique o formato.");
       setParsedPreview([]);
     }
   };
@@ -183,9 +187,9 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
           )}
 
           {errorMsg && (
-            <div className="bg-red-100 border border-red-950 text-red-950 text-[11px] font-mono font-bold px-3 py-2 flex items-center gap-2">
-              <AlertCircle size={14} />
-              {errorMsg}
+            <div className="bg-red-100 border border-red-950 text-red-950 text-[11px] font-mono font-bold px-3 py-2 flex items-start gap-2 whitespace-pre-line">
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <div className="flex-1">{errorMsg}</div>
             </div>
           )}
 

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Lock, User, ShieldCheck } from "lucide-react";
+import { UserRole } from "../types";
 
 interface LoginScreenProps {
-  onLogin: (username: string, role: 'admin' | 'editor') => void;
+  onLogin: (username: string, role: UserRole) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {

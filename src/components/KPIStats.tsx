@@ -1,16 +1,18 @@
 import { Users, CheckCircle2, HelpCircle, XCircle, Clock } from "lucide-react";
-import { ClientRecord } from "../types";
+import { DynamicRecord } from "../types";
 
 interface KPIStatsProps {
-  records: ClientRecord[];
+  records: DynamicRecord[];
+  schemaId?: string;
 }
 
-export default function KPIStats({ records }: KPIStatsProps) {
-  const total = records.length;
-  const comSucesso = records.filter((r) => r.status === "Com Sucesso").length;
-  const semResposta = records.filter((r) => r.status === "Sem Resposta").length;
-  const semSucesso = records.filter((r) => r.status === "Sem Sucesso").length;
-  const naoTentado = records.filter((r) => r.status === "-").length;
+export default function KPIStats({ records, schemaId = 'default' }: KPIStatsProps) {
+  const filteredRecords = records.filter(r => r.reportId === schemaId);
+  const total = filteredRecords.length;
+  const comSucesso = filteredRecords.filter((r) => r.data.status === "Com Sucesso").length;
+  const semResposta = filteredRecords.filter((r) => r.data.status === "Sem Resposta").length;
+  const semSucesso = filteredRecords.filter((r) => r.data.status === "Sem Sucesso").length;
+  const naoTentado = filteredRecords.filter((r) => !r.data.status || r.data.status === "-").length;
 
   const pctSucesso = total > 0 ? Math.round((comSucesso / total) * 100) : 0;
 

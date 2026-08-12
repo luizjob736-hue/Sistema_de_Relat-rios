@@ -86,10 +86,10 @@ export const normalizeHeader = (str: string): string => {
 };
 
 // Parses CSV into Dynamic Records matching the active Report Schema
+// ENFORCES strict header titles and exact column ordering!
 export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicRecord[] => {
-  if (!csvText) return [];
-  const lines = csvText.split(/\r?\n/);
-  const records: DynamicRecord[] = [];
+  if (!csvText || !csvText.trim()) return [];
+  const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
 
   if (lines.length === 0) return [];
 
@@ -99,48 +99,44 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
   }
 
   // Parse header
-  const headerCols = lines[0].split(separator).map(c => cleanColumn(c));
+  let headerCols = lines[0].split(separator).map(c => cleanColumn(c));
   
-  // Create a mapping of colIndex -> fieldId
-  const colToFieldMap: Record<number, string> = {};
-  headerCols.forEach((header, index) => {
-    const normHeader = normalizeHeader(header);
-    let matchedField = schema.fields.find(f => {
-      const normLabel = normalizeHeader(f.label);
-      const normId = normalizeHeader(f.id);
-      return normHeader === normLabel || normHeader === normId ||
-             normHeader.includes(normLabel) || normLabel.includes(normHeader) ||
-             normHeader.includes(normId) || normId.includes(normHeader);
-    });
+  // Remove trailing empty column if CSV ends with trailing delimiter
+  while (headerCols.length > 0 && !headerCols[headerCols.length - 1]) {
+    headerCols.pop();
+  }
 
-    if (!matchedField) {
-      if (normHeader.includes('status') || normHeader.includes('situacao')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('status') || f.label.toLowerCase().includes('status'));
-      } else if (normHeader.includes('observa') || normHeader.includes('obs')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('observa') || f.label.toLowerCase().includes('observa'));
-      } else if (normHeader.includes('tentativa')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('tentativa') || f.label.toLowerCase().includes('tentativa'));
-      } else if (normHeader.includes('nome')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('nome') || f.label.toLowerCase().includes('nome'));
-      } else if (normHeader.includes('cpf') || normHeader.includes('doc')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('cpf') || f.label.toLowerCase().includes('cpf'));
-      } else if (normHeader.includes('fone') || normHeader.includes('tel') || normHeader.includes('cel')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('telefone') || f.label.toLowerCase().includes('telefone') || f.label.toLowerCase().includes('tel'));
-      } else if (normHeader.includes('valorsolicitado') || normHeader.includes('solicitado')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('valorsolicitado') || f.label.toLowerCase().includes('solicitado'));
-      } else if (normHeader.includes('valorliberado') || normHeader.includes('liberado')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('valorliberado') || f.label.toLowerCase().includes('liberado'));
-      } else if (normHeader.includes('base')) {
-        matchedField = schema.fields.find(f => f.id.toLowerCase().includes('base') || f.label.toLowerCase().includes('base'));
-      }
-    }
+  const expectedFields = schema.fields;
+  const expectedLabels = expectedFields.map(f => f.label);
 
-    if (matchedField) {
-      colToFieldMap[index] = matchedField.id;
-    } else if (schema.fields[index]) {
-      colToFieldMap[index] = schema.fields[index].id;
+  // Strict check: Header count & exact position titles matching
+  if (headerCols.length < expectedFields.length) {
+    throw new Error(
+      `O arquivo CSV possui apenas ${headerCols.length} colunas, mas a guia '${schema.name}' exige ${expectedFields.length} colunas.\nEstrutura esperada: ${expectedLabels.join(" ; ")}`
+    );
+  }
+
+  const mismatchedCols: string[] = [];
+  expectedFields.forEach((field, index) => {
+    const headerTitle = headerCols[index] || "";
+    const normHeader = normalizeHeader(headerTitle);
+    const normLabel = normalizeHeader(field.label);
+    const normId = normalizeHeader(field.id);
+
+    // Exact or normalized match
+    if (normHeader !== normLabel && normHeader !== normId) {
+      mismatchedCols.push(`Coluna ${index + 1}: Recebido "${headerTitle}", Esperado "${field.label}"`);
     }
   });
+
+  if (mismatchedCols.length > 0) {
+    throw new Error(
+      `Os títulos ou a ordem das colunas no CSV estão incorretos para a guia '${schema.name}'.\n\nDivergências encontradas:\n${mismatchedCols.join("\n")}\n\nTítulos e ordem esperados:\n${expectedLabels.join(" ; ")}`
+    );
+  }
+
+  // Header is valid! Map colIndex -> field.id
+  const records: DynamicRecord[] = [];
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -149,49 +145,45 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
     const cols = line.split(separator);
     const data: Record<string, string> = {};
     
-    // Initialize defaults based on schema
-    schema.fields.forEach(f => {
+    // Initialize default values
+    expectedFields.forEach(f => {
       data[f.id] = (f.type === 'list' && f.options && f.options.length > 0) ? (f.options.includes("-") ? "-" : f.options[0]) : "-";
     });
 
-    cols.forEach((col, index) => {
-      const fieldId = colToFieldMap[index];
-      if (fieldId) {
-        let cleaned = cleanColumn(col);
-        
-        // Normalize Attempt 1 Date
-        if (fieldId.toLowerCase().includes("tentativa")) {
-          cleaned = normalizeDateTime(cleaned);
+    expectedFields.forEach((field, index) => {
+      let cleaned = cols[index] !== undefined ? cleanColumn(cols[index]) : "";
+      
+      // Normalize Attempt 1 Date/Time
+      if (field.id.toLowerCase().includes("tentativa") || field.label.toLowerCase().includes("tentativa")) {
+        cleaned = normalizeDateTime(cleaned);
+      } else if (field.type === 'list' && field.options) {
+        // Normalize list options
+        const matchedOpt = field.options.find(o => o.toLowerCase() === cleaned.toLowerCase());
+        if (matchedOpt) {
+          cleaned = matchedOpt;
         } else {
-          // Normalize list items (e.g. status, observacao final)
-          const fieldDef = schema.fields.find(f => f.id === fieldId);
-          if (fieldDef && fieldDef.type === 'list' && fieldDef.options) {
-            const matchedOpt = fieldDef.options.find(o => o.toLowerCase() === cleaned.toLowerCase());
-            if (matchedOpt) {
-              cleaned = matchedOpt;
-            } else {
-              const partialOpt = fieldDef.options.find(o => o !== '-' && cleaned.toLowerCase().includes(o.toLowerCase()));
-              if (partialOpt) {
-                cleaned = partialOpt;
-              } else if (cleaned.toLowerCase().includes('sucesso') && fieldDef.options.includes('Com Sucesso')) {
-                if (cleaned.toLowerCase().includes('com')) cleaned = 'Com Sucesso';
-                else if (cleaned.toLowerCase().includes('sem')) cleaned = 'Sem Sucesso';
-              } else if (cleaned.toLowerCase().includes('resposta') && fieldDef.options.includes('Sem Resposta')) {
-                cleaned = 'Sem Resposta';
-              } else {
-                if (!cleaned || cleaned.trim() === "") {
-                  cleaned = "-";
-                }
-              }
-            }
+          const partialOpt = field.options.find(o => o !== '-' && cleaned.toLowerCase().includes(o.toLowerCase()));
+          if (partialOpt) {
+            cleaned = partialOpt;
+          } else if (cleaned.toLowerCase().includes('sucesso') && field.options.includes('Com Sucesso')) {
+            if (cleaned.toLowerCase().includes('com')) cleaned = 'Com Sucesso';
+            else if (cleaned.toLowerCase().includes('sem')) cleaned = 'Sem Sucesso';
+          } else if (cleaned.toLowerCase().includes('resposta') && field.options.includes('Sem Resposta')) {
+            cleaned = 'Sem Resposta';
+          } else if (!cleaned || cleaned.trim() === "") {
+            cleaned = "-";
           }
         }
-        
-        data[fieldId] = cleaned;
       }
+
+      if (!cleaned || cleaned.trim() === "") {
+        cleaned = "-";
+      }
+
+      data[field.id] = cleaned;
     });
 
-    // Skip if all fields are essentially empty (defaults)
+    // Skip line if all fields are empty or defaults
     if (Object.values(data).every(val => val === "-" || val === "")) {
        continue;
     }

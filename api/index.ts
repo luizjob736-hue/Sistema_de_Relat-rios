@@ -60,9 +60,13 @@ async function initDb() {
     const existingUsers = await sql`SELECT count(*) FROM users`;
     if (parseInt(existingUsers[0].count) === 0) {
       await sql`INSERT INTO users (id, username, password, role) VALUES ('admin-1', 'Admin', 'Proativa_*2026', 'admin') ON CONFLICT (username) DO NOTHING`;
+      await sql`INSERT INTO users (id, username, password, role) VALUES ('viewer-1', 'Visualizador', 'Visua@prt06', 'viewer') ON CONFLICT (username) DO NOTHING`;
       for (let i = 1; i <= 15; i++) {
         await sql`INSERT INTO users (id, username, password, role) VALUES (${`op-${i}`}, ${`Operador ${i}`}, '123456', 'editor') ON CONFLICT (username) DO NOTHING`;
       }
+    } else {
+      // Ensure Visualizador user exists even if database was already seeded
+      await sql`INSERT INTO users (id, username, password, role) VALUES ('viewer-1', 'Visualizador', 'Visua@prt06', 'viewer') ON CONFLICT (username) DO UPDATE SET password = 'Visua@prt06', role = 'viewer'`;
     }
 
     console.log("Database tables verified/created.");

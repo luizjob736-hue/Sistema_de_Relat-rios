@@ -1,3 +1,5 @@
+export type UserRole = 'admin' | 'editor' | 'viewer';
+
 export interface FieldDef {
   id: string;
   label: string;

@@ -5,15 +5,15 @@ import { ClientTable } from "./components/ClientTable";
 import { SchemaBuilderModal } from "./components/SchemaBuilderModal";
 import { LoginScreen } from "./components/LoginScreen";
 import { UserManagementModal } from "./components/UserManagementModal";
-import { DynamicRecord, ReportSchema, defaultSchema } from "./types";
+import { DynamicRecord, ReportSchema, UserRole, defaultSchema } from "./types";
 import { getFallbackRecords } from "./utils";
 
 function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(() => {
     return sessionStorage.getItem("crm_current_user");
   });
-  const [userRole, setUserRole] = useState<'admin' | 'editor' | null>(() => {
-    return sessionStorage.getItem("crm_user_role") as ('admin' | 'editor' | null);
+  const [userRole, setUserRole] = useState<UserRole | null>(() => {
+    return sessionStorage.getItem("crm_user_role") as (UserRole | null);
   });
 
   const [schemas, setSchemas] = useState<ReportSchema[]>([]);
@@ -33,7 +33,7 @@ function App() {
     setTimeout(() => setToastMessage(""), 4000);
   };
 
-  const handleLogin = (username: string, role: 'admin' | 'editor') => {
+  const handleLogin = (username: string, role: UserRole) => {
     setCurrentUser(username);
     setUserRole(role);
     sessionStorage.setItem("crm_current_user", username);
@@ -294,8 +294,10 @@ function App() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-black uppercase tracking-tighter">Sistema de Relatórios</h1>
-                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 border border-[#141414] uppercase ${userRole === 'admin' ? 'bg-[#141414] text-white' : 'bg-slate-200 text-slate-800'}`}>
-                  {userRole === 'admin' ? 'Admin' : 'Operador'} : {currentUser}
+                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 border border-[#141414] uppercase ${
+                  userRole === 'admin' ? 'bg-[#141414] text-white' : userRole === 'viewer' ? 'bg-blue-100 text-blue-900 border-blue-950' : 'bg-slate-200 text-slate-800'
+                }`}>
+                  {userRole === 'admin' ? 'Admin' : userRole === 'viewer' ? 'Visualização' : 'Operador'} : {currentUser}
                 </span>
               </div>
               <p className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest">
@@ -434,6 +436,7 @@ function App() {
             <ClientTable
               schema={activeSchema}
               records={records}
+              userRole={userRole || 'viewer'}
               onUpdateRecord={handleUpdateRecord}
               onUpdateRecordsBulk={handleUpdateRecordsBulk}
               onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}

@@ -1,23 +1,27 @@
 import React, { useState, useMemo } from "react";
-import { Search, Download, Trash2, CheckSquare, ClipboardCopy } from "lucide-react";
-import { DynamicRecord, ReportSchema } from "../types";
+import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3 } from "lucide-react";
+import { DynamicRecord, ReportSchema, UserRole } from "../types";
 import { exportDynamicCSV, formatCurrentDateTime } from "../utils";
 
 interface ClientTableProps {
   schema: ReportSchema;
   records: DynamicRecord[];
+  userRole?: UserRole;
   onUpdateRecord: (id: string, updatedData: Record<string, string>) => void;
   onUpdateRecordsBulk: (ids: string[], updatedData: Record<string, string>) => void;
-  onDeleteRecords: (ids: string[]) => void;
+  onDeleteRecords?: (ids: string[]) => void;
 }
 
 export function ClientTable({
   schema,
   records,
+  userRole = 'editor',
   onUpdateRecord,
   onUpdateRecordsBulk,
   onDeleteRecords,
 }: ClientTableProps) {
+  const canEdit = userRole === 'admin' || userRole === 'editor';
+
   const [searchTerm, setSearchTerm] = useState("");
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -91,12 +95,13 @@ export function ClientTable({
         
         // Contato efetivo: positive progress outcomes or explicit success status
         const positiveKeywords = [
+          "com sucesso",
+          "desconto foi realizado",
           "finalizada/paga",
           "documentação apresentada",
           "link de formalização reenviado",
           "dados bancários corrigidos",
-          "orientado voltar na jornada",
-          "com sucesso"
+          "orientado voltar na jornada"
         ];
 
         if (positiveKeywords.some(kw => obsValue.includes(kw) || statusValue.includes(kw))) {
@@ -145,19 +150,29 @@ export function ClientTable({
     return { counts: sortedCounts, total };
   }, [records, schema]);
 
-  const copySummary = () => {
-    const formatPct = (val: number, total: number) => {
-      if (total === 0) return "0,00%";
-      return ((val / total) * 100).toFixed(2).replace('.', ',') + "%";
-    };
+  const formatPct = (val: number, total: number) => {
+    if (total === 0) return "0,00%";
+    return ((val / total) * 100).toFixed(2).replace('.', ',') + "%";
+  };
 
-    const text = `Resumo Executivo
+  const copySummary = () => {
+    const text = `Resumo Executivo (${schema.name})
 • Total da base: ${reportStats.totalBase.toLocaleString('pt-BR')} clientes
 • Base trabalhada: ${reportStats.baseTrabalhada.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})
 • Contato efetivo: ${reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})
 • Sem contato efetivo: ${reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})
 • Pendências de discagem: ${reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})`;
 
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyFeedback("Copiado!");
+      setTimeout(() => setCopyFeedback(""), 2000);
+    });
+  };
+
+  const copyObsTable = () => {
+    let text = `Contagem (Observação Final - ${schema.name})\nObservação Final\tQtd.\n`;
+    observacaoBreakdown.counts.forEach(c => text += `${c.label}\t${c.count}\n`);
+    text += `Total Geral\t${observacaoBreakdown.total}`;
     navigator.clipboard.writeText(text).then(() => {
       setCopyFeedback("Copiado!");
       setTimeout(() => setCopyFeedback(""), 2000);
@@ -217,87 +232,93 @@ export function ClientTable({
     }
   };
 
-  const formatPct = (val: number, total: number) => {
-    if (total === 0) return "0,00%";
-    return ((val / total) * 100).toFixed(2).replace('.', ',') + "%";
-  };
-
   return (
     <div className="flex flex-col h-full bg-[#E4E3E0]">
-      {/* Resumo Executivo / Contagem */}
-      {schema.name.toUpperCase().includes("PROPOSTAS") ? (
-        <div className="bg-white border-b-2 border-[#141414] p-4 flex flex-col gap-4 shrink-0 relative max-h-64 overflow-y-auto">
-          <div className="flex justify-between items-center sticky top-0 bg-white z-10 pb-2 border-b border-gray-200">
-             <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] flex items-center gap-2">
-               Contagem (Observação Final)
-             </h3>
-             <button
-              onClick={() => {
-                let text = "Observação Final\tQtd.\n";
-                observacaoBreakdown.counts.forEach(c => text += `${c.label}\t${c.count}\n`);
-                text += `Total Geral\t${observacaoBreakdown.total}`;
-                navigator.clipboard.writeText(text).then(() => {
-                  setCopyFeedback("Copiado!");
-                  setTimeout(() => setCopyFeedback(""), 2000);
-                });
-              }}
-              className="flex items-center gap-2 px-3 py-1.5 bg-[#fce4ec] border-2 border-[#880e4f] text-[#880e4f] text-[10px] font-bold uppercase hover:bg-[#880e4f] hover:text-white transition-all shadow-[2px_2px_0px_#880e4f] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
-             >
-               <ClipboardCopy size={14} />
-               {copyFeedback || "Copiar Tabela"}
-             </button>
-          </div>
-          <table className="w-full text-sm text-left font-sans">
-             <thead className="bg-[#fce4ec] text-[#880e4f] text-xs uppercase font-bold border-b border-[#f8bbd0]">
-                <tr>
-                   <th className="px-3 py-2 border-r border-white">Observação Final</th>
-                   <th className="px-3 py-2 w-24 text-right">Qtd.</th>
-                </tr>
-             </thead>
-             <tbody>
-                {observacaoBreakdown.counts.map((item, idx) => (
-                   <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="px-3 py-1.5 text-gray-800">{item.label}</td>
-                      <td className="px-3 py-1.5 text-right font-medium text-gray-900">{item.count}</td>
-                   </tr>
-                ))}
-                {observacaoBreakdown.counts.length === 0 && (
-                   <tr>
-                      <td colSpan={2} className="px-3 py-4 text-center text-gray-500 italic">Nenhum registro com observação preenchida.</td>
-                   </tr>
-                )}
-             </tbody>
-             <tfoot className="bg-[#fce4ec] text-[#880e4f] font-bold border-t-2 border-[#f48fb1]">
-                <tr>
-                   <td className="px-3 py-2 border-r border-white">Total Geral</td>
-                   <td className="px-3 py-2 text-right">{observacaoBreakdown.total}</td>
-                </tr>
-             </tfoot>
-          </table>
-        </div>
-      ) : (
-        <div className="bg-white border-b-2 border-[#141414] p-4 flex flex-wrap gap-6 items-start justify-between shrink-0 relative">
-          <div>
-            <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] mb-2 flex items-center gap-2">
-              Resumo Executivo
-            </h3>
-            <ul className="text-[11px] font-mono text-slate-700 space-y-1">
-              <li><span className="font-bold text-[#141414]">Total da base:</span> {reportStats.totalBase.toLocaleString('pt-BR')} clientes</li>
-              <li><span className="font-bold text-[#141414]">Base trabalhada:</span> {reportStats.baseTrabalhada.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})</span></li>
-              <li><span className="font-bold text-[#141414]">Contato efetivo:</span> {reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})</span></li>
-              <li><span className="font-bold text-[#141414]">Sem contato efetivo:</span> {reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></li>
-              <li><span className="font-bold text-[#141414]">Pendências de discagem:</span> {reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes <span className="text-slate-500">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></li>
+      {/* Resumo Executivo & Contagens (Calculado Automaticamente) */}
+      <div className="bg-white border-b-2 border-[#141414] p-4 shrink-0">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {/* Métricas Principais */}
+          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+            <div className="flex justify-between items-center mb-2 pb-1 border-b border-[#141414]">
+              <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] flex items-center gap-2">
+                <BarChart3 size={16} /> Resumo Executivo: {schema.name}
+              </h3>
+              <button
+                onClick={copySummary}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+              >
+                <ClipboardCopy size={12} />
+                {copyFeedback || "Copiar Resumo"}
+              </button>
+            </div>
+            <ul className="text-[11px] font-mono text-slate-700 space-y-1.5">
+              <li className="flex justify-between border-b border-gray-200 pb-0.5">
+                <span className="font-bold text-[#141414]">Total da base:</span>
+                <span className="font-bold font-mono">{reportStats.totalBase.toLocaleString('pt-BR')} clientes</span>
+              </li>
+              <li className="flex justify-between border-b border-gray-200 pb-0.5">
+                <span className="font-bold text-[#141414]">Base trabalhada:</span>
+                <span><strong className="font-mono">{reportStats.baseTrabalhada.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})</span></span>
+              </li>
+              <li className="flex justify-between border-b border-gray-200 pb-0.5">
+                <span className="font-bold text-emerald-900">Contato efetivo:</span>
+                <span><strong className="font-mono text-emerald-900">{reportStats.contatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})</span></span>
+              </li>
+              <li className="flex justify-between border-b border-gray-200 pb-0.5">
+                <span className="font-bold text-amber-900">Sem contato efetivo:</span>
+                <span><strong className="font-mono text-amber-900">{reportStats.semContatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></span>
+              </li>
+              <li className="flex justify-between">
+                <span className="font-bold text-[#141414]">Pendências de discagem:</span>
+                <span><strong className="font-mono">{reportStats.pendenciasDiscagem.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></span>
+              </li>
             </ul>
           </div>
-          <button
-            onClick={copySummary}
-            className="flex items-center gap-2 px-3 py-1.5 bg-[#F2F1EB] border-2 border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
-          >
-            <ClipboardCopy size={14} />
-            {copyFeedback || "Copiar Resumo"}
-          </button>
+
+          {/* Tabela de Observação Final */}
+          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] max-h-48 overflow-y-auto">
+            <div className="flex justify-between items-center mb-2 pb-1 border-b border-[#141414] sticky top-0 bg-[#F2F1EB] z-10">
+              <h3 className="text-xs font-black uppercase tracking-widest text-[#141414]">
+                Contagem (Observação Final)
+              </h3>
+              <button
+                onClick={copyObsTable}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+              >
+                <ClipboardCopy size={12} />
+                Copiar Tabela
+              </button>
+            </div>
+            <table className="w-full text-xs text-left font-sans">
+              <thead className="bg-[#E4E3E0] text-[#141414] text-[10px] uppercase font-bold border-b border-[#141414]">
+                <tr>
+                  <th className="px-2 py-1 border-r border-[#141414]">Observação Final</th>
+                  <th className="px-2 py-1 w-20 text-right">Qtd.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 text-[11px]">
+                {observacaoBreakdown.counts.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-white/60">
+                    <td className="px-2 py-1 font-medium text-slate-800">{item.label}</td>
+                    <td className="px-2 py-1 text-right font-mono font-bold text-slate-900">{item.count}</td>
+                  </tr>
+                ))}
+                {observacaoBreakdown.counts.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="px-2 py-3 text-center text-slate-500 italic text-[10px]">Nenhuma observação preenchida.</td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="bg-[#E4E3E0] font-bold border-t border-[#141414] text-[11px]">
+                <tr>
+                  <td className="px-2 py-1 border-r border-[#141414]">Total Geral</td>
+                  <td className="px-2 py-1 text-right font-mono">{observacaoBreakdown.total}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Top Controls */}
       <div className="p-4 border-b-2 border-[#141414] bg-[#F2F1EB] shrink-0">

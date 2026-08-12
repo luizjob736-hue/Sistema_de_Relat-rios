@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { X, UserPlus, Key, Trash2, Edit3, Shield, User } from "lucide-react";
+import { UserRole } from "../types";
 
 interface UserItem {
   id: string;
   username: string;
-  role: 'admin' | 'editor';
+  role: UserRole;
   password?: string;
 }
 
@@ -23,7 +24,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
   // Form states
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<'admin' | 'editor'>("editor");
+  const [role, setRole] = useState<UserRole>("editor");
 
   const fetchUsers = async () => {
     try {
@@ -174,8 +175,10 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
                             {u.username}
                           </td>
                           <td className="p-3 border-r border-gray-200">
-                            <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase border border-[#141414] ${u.role === 'admin' ? 'bg-[#141414] text-white' : 'bg-slate-200 text-slate-800'}`}>
-                              {u.role === 'admin' ? 'Administrador' : 'Editor / Operador'}
+                            <span className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase border border-[#141414] ${
+                              u.role === 'admin' ? 'bg-[#141414] text-white' : u.role === 'viewer' ? 'bg-blue-100 text-blue-900 border-blue-950' : 'bg-slate-200 text-slate-800'
+                            }`}>
+                              {u.role === 'admin' ? 'Administrador' : u.role === 'viewer' ? 'Visualizador (Leitura)' : 'Editor / Operador'}
                             </span>
                           </td>
                           <td className="p-3 text-right space-x-2">
@@ -239,10 +242,11 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
                 <label className="block text-xs font-black uppercase tracking-wider mb-1">Perfil de Acesso</label>
                 <select
                   value={role}
-                  onChange={(e) => setRole(e.target.value as any)}
+                  onChange={(e) => setRole(e.target.value as UserRole)}
                   className="w-full p-2.5 bg-[#F2F1EB] border-2 border-[#141414] text-sm focus:outline-none focus:bg-white font-mono"
                 >
-                  <option value="editor">Editor (Operador - Acesso a guias e edição)</option>
+                  <option value="editor">Editor / Operador (Edição e visualização)</option>
+                  <option value="viewer">Visualizador (Apenas leitura e exportação)</option>
                   <option value="admin">Administrador (Acesso total)</option>
                 </select>
               </div>
