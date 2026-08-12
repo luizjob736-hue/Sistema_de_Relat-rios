@@ -7,7 +7,6 @@ import { LoginScreen } from "./components/LoginScreen";
 import { UserManagementModal } from "./components/UserManagementModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicRecord, ReportSchema, UserRole, defaultSchema } from "./types";
-import { getFallbackRecords } from "./utils";
 
 function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(() => {
@@ -177,15 +176,6 @@ function App() {
         });
 
         let finalRecords = Array.from(recordMap.values());
-
-        if (finalRecords.length === 0) {
-          finalRecords = getFallbackRecords();
-          fetch("/api/records/bulk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ records: finalRecords, mode: "append" })
-          }).catch(console.error);
-        }
 
         setRecords(finalRecords);
         try {
