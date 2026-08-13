@@ -115,17 +115,19 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
   // 2. If title matching fails, fallback to positional index (excluding trailing fixed columns like Status/Observação if missing)
   const normHeaderCols = headerCols.map(c => normalizeHeader(c));
 
-  // Build field mapping array: for each schema field, find CSV column index or -1
-  const fieldToColIndexMap: number[] = expectedFields.map((field, fIdx) => {
+  // Build field mapping array & verify all schema fields (including Status & Observação final) are present in CSV
+  const missingFields: string[] = [];
+  const fieldToColIndexMap: number[] = [];
+
+  expectedFields.forEach((field, fIdx) => {
     const normLabel = normalizeHeader(field.label || "");
     const normId = normalizeHeader(field.id || "");
 
-    // 1. Look for exact label or ID match in CSV headers
+    // Look for exact or fuzzy match in CSV headers
     let matchIdx = normHeaderCols.findIndex(
-      h => h === normLabel || h === normId || (normLabel && h && (h.includes(normLabel) || normLabel.includes(h)))
+      h => h === normLabel || h === normId || (normLabel && h && (h === normLabel || h.includes(normLabel)))
     );
 
-    // Special alias matching for common Portuguese column names
     if (matchIdx === -1) {
       if (normLabel.includes("observa") || normId.includes("observa")) {
         matchIdx = normHeaderCols.findIndex(h => h.includes("obs") || h.includes("observa"));
@@ -142,16 +144,23 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
       }
     }
 
-    // 2. Positional fallback if CSV header matches standard column count
-    if (matchIdx === -1) {
-      // Check if CSV column at index fIdx exists
-      if (fIdx < headerCols.length) {
-        matchIdx = fIdx;
-      }
+    // Positional fallback if CSV has exact column count matching expectedFields
+    if (matchIdx === -1 && fIdx < headerCols.length && headerCols.length >= expectedFields.length) {
+      matchIdx = fIdx;
     }
 
-    return matchIdx;
+    if (matchIdx === -1) {
+      missingFields.push(field.label || field.id);
+    } else {
+      fieldToColIndexMap[fIdx] = matchIdx;
+    }
   });
+
+  if (missingFields.length > 0) {
+    throw new Error(
+      `O arquivo CSV de importação deve obrigatoriamente conter todas as colunas da guia, incluindo 'Status' e 'Observação final'.\n\nColuna(s) não encontrada(s) no arquivo CSV:\n• ${missingFields.join("\n• ")}`
+    );
+  }
 
   const records: DynamicRecord[] = [];
 
