@@ -8,6 +8,7 @@ import { LoginScreen } from "./components/LoginScreen";
 import { UserManagementModal } from "./components/UserManagementModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicRecord, ReportSchema, UserRole, defaultSchema } from "./types";
+import { getRecordIdentifiers } from "./utils";
 
 function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(() => {
@@ -330,42 +331,121 @@ function App() {
     });
 
     const isOverwrite = mode === "overwrite";
-    let finalRecordsToSave: DynamicRecord[] = [];
-    let updatedRecordsState: DynamicRecord[] = [];
-    
-    if (isOverwrite) {
-      const remaining = records.filter(r => r.reportId !== activeSchema.id);
-      const mappedNewRecords = newRecords.map((rec, idx) => ({
-        ...rec,
-        data: {
-          ...rec.data,
-          _order: String(idx + 1)
-        }
-      }));
-      updatedRecordsState = [...remaining, ...mappedNewRecords];
-      finalRecordsToSave = mappedNewRecords;
-    } else {
-      const activeRecords = records.filter(r => r.reportId === activeSchema.id);
-      
-      let maxOrder = 0;
-      activeRecords.forEach(r => {
+
+    // Build map of existing records to keep / update
+    const recordsMap = new Map<string, DynamicRecord>();
+    records.forEach(r => {
+      if (isOverwrite && r.reportId === activeSchema.id) {
+        // Overwriting active schema: don't keep existing records from active schema
+        return;
+      }
+      recordsMap.set(r.id, r);
+    });
+
+    // Build lookup maps for fast CPF / Name match across ALL kept records
+    const cpfLookup = new Map<string, string>(); // normalizedCpf -> recordId
+    const nameLookup = new Map<string, string>(); // normalizedName -> recordId
+
+    recordsMap.forEach((r) => {
+      const ids = getRecordIdentifiers(r.data, activeSchema.fields);
+      if (ids.cpf && !cpfLookup.has(ids.cpf)) {
+        cpfLookup.set(ids.cpf, r.id);
+      }
+      if (ids.name && !nameLookup.has(ids.name)) {
+        nameLookup.set(ids.name, r.id);
+      }
+    });
+
+    // Calculate max order for active schema
+    let maxOrder = 0;
+    recordsMap.forEach((r) => {
+      if (r.reportId === activeSchema.id) {
         const o = r.data && r.data._order ? Number(r.data._order) : 0;
         if (o > maxOrder) maxOrder = o;
-      });
-      
-      const mappedNewRecords = newRecords.map((rec, idx) => ({
-        ...rec,
-        data: {
-          ...rec.data,
-          _order: String(maxOrder + idx + 1)
+      }
+    });
+
+    let updatedCount = 0;
+    let addedCount = 0;
+    const recordsToSaveInBulk: DynamicRecord[] = [];
+
+    newRecords.forEach((newRec) => {
+      const ids = getRecordIdentifiers(newRec.data, activeSchema.fields);
+
+      let targetId: string | undefined = undefined;
+      if (ids.cpf) {
+        targetId = cpfLookup.get(ids.cpf);
+      }
+      if (!targetId && ids.name) {
+        targetId = nameLookup.get(ids.name);
+      }
+
+      if (targetId && recordsMap.has(targetId)) {
+        // MATCH FOUND: Update existing record!
+        const existingRec = recordsMap.get(targetId)!;
+        const mergedData = { ...existingRec.data };
+
+        // Merge incoming fields
+        Object.keys(newRec.data).forEach((key) => {
+          const val = newRec.data[key];
+          if (val !== undefined && val !== null && val.trim() !== "" && val.trim() !== "-") {
+            mergedData[key] = val;
+          } else if (mergedData[key] === undefined) {
+            mergedData[key] = val;
+          }
+        });
+
+        if (!mergedData._order) {
+          maxOrder++;
+          mergedData._order = String(maxOrder);
         }
-      }));
 
-      updatedRecordsState = [...records, ...mappedNewRecords];
-      finalRecordsToSave = mappedNewRecords;
-    }
+        const updatedRecord: DynamicRecord = {
+          ...existingRec,
+          reportId: activeSchema.id, // Transfer/associate with active schema
+          data: mergedData
+        };
 
+        recordsMap.set(targetId, updatedRecord);
+        recordsToSaveInBulk.push(updatedRecord);
+
+        // Update lookup indexes in case merged data populated new identifier
+        const updatedIds = getRecordIdentifiers(mergedData, activeSchema.fields);
+        if (updatedIds.cpf) cpfLookup.set(updatedIds.cpf, targetId);
+        if (updatedIds.name) nameLookup.set(updatedIds.name, targetId);
+
+        updatedCount++;
+      } else {
+        // NO MATCH: Add as new record
+        maxOrder++;
+        const newId = newRec.id || `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const recWithOrder: DynamicRecord = {
+          ...newRec,
+          id: newId,
+          reportId: activeSchema.id,
+          data: {
+            ...newRec.data,
+            _order: String(maxOrder)
+          }
+        };
+
+        recordsMap.set(newId, recWithOrder);
+        recordsToSaveInBulk.push(recWithOrder);
+
+        if (ids.cpf) cpfLookup.set(ids.cpf, newId);
+        if (ids.name) nameLookup.set(ids.name, newId);
+
+        addedCount++;
+      }
+    });
+
+    const updatedRecordsState = Array.from(recordsMap.values());
     setRecords(updatedRecordsState);
+
+    // Deduplicate unique records to send in bulk payload
+    const finalRecordsToSave = Array.from(
+      new Map(recordsToSaveInBulk.map(r => [r.id, r])).values()
+    );
 
     // Give visual feedback for validation step
     await new Promise(r => setTimeout(r, 300));
@@ -397,7 +477,7 @@ function App() {
         savedCount += chunk.length;
         setImportProgress(prev => ({
           ...prev,
-          current: savedCount
+          current: Math.min(savedCount, newRecords.length)
         }));
       }
 
@@ -418,7 +498,11 @@ function App() {
         step: 'completed',
         current: newRecords.length
       }));
-      showToast(`${newRecords.length} registros importados com sucesso!`);
+      
+      const msg = updatedCount > 0 
+        ? `${addedCount} novos registros e ${updatedCount} atualizações (sem duplicidades)!` 
+        : `${addedCount} novos registros importados com sucesso!`;
+      showToast(msg);
     } catch (err: any) {
       console.error(err);
       setImportProgress(prev => ({

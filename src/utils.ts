@@ -86,6 +86,67 @@ export const normalizeHeader = (str: string): string => {
     .replace(/[^a-z0-9]/g, "");
 };
 
+export const normalizeCpf = (raw: string | undefined | null): string => {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.length >= 8 && digits !== "00000000000") {
+    return digits.padStart(11, "0");
+  }
+  return "";
+};
+
+export const normalizeName = (raw: string | undefined | null): string => {
+  if (!raw) return "";
+  const s = String(raw)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+  if (s.length >= 2 && s !== "dado" && s !== "nome" && s !== "cliente" && s !== "semnome") {
+    return s;
+  }
+  return "";
+};
+
+export const getRecordIdentifiers = (recData: Record<string, string>, fields?: any[]) => {
+  let rawCpf = "";
+  let rawName = "";
+
+  if (recData) {
+    for (const [key, val] of Object.entries(recData)) {
+      if (!val || val === "-" || val === "—") continue;
+      const kLower = key.toLowerCase();
+      if (!rawCpf && kLower.includes("cpf")) {
+        rawCpf = val;
+      }
+      if (!rawName && (kLower === "nome" || kLower === "nomecliente" || (kLower.includes("nome") && !kLower.includes("base")))) {
+        rawName = val;
+      }
+    }
+  }
+
+  if (fields && Array.isArray(fields)) {
+    for (const field of fields) {
+      if (!field || !field.id) continue;
+      const val = recData ? recData[field.id] : "";
+      if (!val || val === "-" || val === "—") continue;
+      const labelLower = (field.label || "").toLowerCase();
+      if (!rawCpf && labelLower.includes("cpf")) {
+        rawCpf = val;
+      }
+      if (!rawName && labelLower.includes("nome") && !labelLower.includes("base")) {
+        rawName = val;
+      }
+    }
+  }
+
+  return {
+    cpf: normalizeCpf(rawCpf),
+    name: normalizeName(rawName)
+  };
+};
+
 // Parses CSV into Dynamic Records matching the active Report Schema
 export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicRecord[] => {
   if (!csvText || !csvText.trim()) return [];
