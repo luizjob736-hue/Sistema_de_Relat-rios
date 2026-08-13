@@ -638,9 +638,6 @@ app.post("/api/records/bulk", async (req, res) => {
     }
     saveFallbackData(cache);
 
-    // Apply deduplication on both
-    await deduplicateRecordsInDb();
-    
     res.json({ success: true, count: records ? records.length : 0, fallback: !dbSuccess });
   } catch (err) {
     console.error("Error in /api/records/bulk:", err);

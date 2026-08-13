@@ -158,7 +158,7 @@ function App() {
 
         setRecords(finalRecords);
         try {
-          const backupRecords = finalRecords.slice(0, 100);
+          const backupRecords = finalRecords.slice(0, 5000);
           localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
         } catch (e) {}
       } catch (err) {
@@ -313,8 +313,6 @@ function App() {
     const isOverwrite = mode === "overwrite";
     let finalRecordsToSave: DynamicRecord[] = [];
     let updatedRecordsState: DynamicRecord[] = [];
-    let updatedCount = 0;
-    let addedCount = 0;
     
     if (isOverwrite) {
       const remaining = records.filter(r => r.reportId !== activeSchema.id);
@@ -328,74 +326,24 @@ function App() {
       updatedRecordsState = [...remaining, ...mappedNewRecords];
       finalRecordsToSave = mappedNewRecords;
     } else {
-      const updated = [...records];
       const activeRecords = records.filter(r => r.reportId === activeSchema.id);
       
-      // Find maximum existing order index to prevent duplication of sequence positions
       let maxOrder = 0;
       activeRecords.forEach(r => {
         const o = r.data && r.data._order ? Number(r.data._order) : 0;
         if (o > maxOrder) maxOrder = o;
       });
       
-      newRecords.forEach((newRec) => {
-        const cpfField = activeSchema.fields.find(f => f.label.toLowerCase().includes('cpf') || f.id.toLowerCase().includes('cpf'))?.id;
-        const nomeField = activeSchema.fields.find(f => f.label.toLowerCase().includes('nome') && !f.label.toLowerCase().includes('base'))?.id;
-
-        const existingIndex = updated.findIndex((r) => {
-          if (r.reportId !== activeSchema.id) return false;
-          let match = false;
-          if (cpfField && r.data[cpfField] && r.data[cpfField] !== "-") {
-            match = r.data[cpfField] === newRec.data[cpfField];
-          } else if (nomeField && r.data[nomeField] && r.data[nomeField] !== "-") {
-            match = r.data[nomeField].toLowerCase() === newRec.data[nomeField].toLowerCase();
-          }
-          return match;
-        });
-
-        if (existingIndex !== -1) {
-          const existingData = updated[existingIndex].data;
-          const mergedData = { ...existingData };
-          
-          Object.keys(newRec.data).forEach(k => {
-            const incomingValue = newRec.data[k];
-            if (
-              incomingValue !== undefined &&
-              incomingValue !== null &&
-              incomingValue.trim() !== "" &&
-              incomingValue.trim() !== "-"
-            ) {
-              mergedData[k] = incomingValue;
-            }
-          });
-
-          if (!mergedData._order) {
-            maxOrder++;
-            mergedData._order = String(maxOrder);
-          }
-
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            data: mergedData
-          };
-          finalRecordsToSave.push(updated[existingIndex]);
-          updatedCount++;
-        } else {
-          maxOrder++;
-          const recWithOrder = {
-            ...newRec,
-            data: {
-              ...newRec.data,
-              _order: String(maxOrder)
-            }
-          };
-          updated.push(recWithOrder);
-          finalRecordsToSave.push(recWithOrder);
-          addedCount++;
+      const mappedNewRecords = newRecords.map((rec, idx) => ({
+        ...rec,
+        data: {
+          ...rec.data,
+          _order: String(maxOrder + idx + 1)
         }
-      });
+      }));
 
-      updatedRecordsState = updated;
+      updatedRecordsState = [...records, ...mappedNewRecords];
+      finalRecordsToSave = mappedNewRecords;
     }
 
     setRecords(updatedRecordsState);
@@ -415,13 +363,9 @@ function App() {
         throw new Error("Falha HTTP " + response.status);
       }
 
-      if (isOverwrite) {
-        showToast(`${newRecords.length} registros importados e salvos permanentemente no banco!`);
-      } else {
-        showToast(`${addedCount} novos registros e ${updatedCount} atualizações salvas permanentemente no banco!`);
-      }
+      showToast(`${newRecords.length} registros importados e salvos permanentemente no banco!`);
 
-      // Re-fetch deduplicated clean state from server
+      // Re-fetch state from server to confirm full sync
       const refreshRes = await fetch("/api/records");
       if (refreshRes.ok) {
         const cleanRecs = await refreshRes.json();
@@ -431,8 +375,8 @@ function App() {
         } catch (e) {}
       }
     } catch (err) {
-      console.error("Erro na persistência dos dados:", err);
-      showToast("Erro ao salvar base no banco de dados.");
+      console.error(err);
+      showToast("Erro ao salvar no banco.");
     }
     
     setIsImportModalOpen(false);
