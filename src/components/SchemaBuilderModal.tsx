@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
-import { ReportSchema, FieldDef } from "../types";
+import { ReportSchema, FieldDef, ensureFixedColumns, defaultStatusConfigs } from "../types";
 
 interface SchemaBuilderModalProps {
   onClose: () => void;
@@ -49,7 +49,8 @@ export function SchemaBuilderModal({ onClose, onSave, initialSchema }: SchemaBui
     onSave({
       id: initialSchema?.id || `report_${Date.now()}`,
       name,
-      fields
+      fields: ensureFixedColumns(fields),
+      statusConfigs: initialSchema?.statusConfigs || defaultStatusConfigs
     });
   };
 

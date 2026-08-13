@@ -1,6 +1,6 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import { UploadCloud, Check, AlertCircle, X, Download } from "lucide-react";
-import { DynamicRecord, ReportSchema } from "../types";
+import { DynamicRecord, ReportSchema, ensureFixedColumns, defaultStatusConfigs } from "../types";
 import { parseDynamicCSV } from "../utils";
 
 interface ImportModalProps {
@@ -22,6 +22,26 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
   
   const parseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Status options for fixed column
+  const statusOptions = useMemo(() => {
+    if (schema?.statusConfigs && schema.statusConfigs.length > 0) {
+      return ["-", ...schema.statusConfigs.map(c => c.motivo)];
+    }
+    return ["-", "Com Sucesso", "Sem Sucesso", "Sem Resposta"];
+  }, [schema?.statusConfigs]);
+
+  // Ensure 'Status' and 'Observação final' are ALWAYS the last 2 columns in schema fields
+  const fields = useMemo(() => {
+    return ensureFixedColumns(schema?.fields || [], statusOptions);
+  }, [schema?.fields, statusOptions]);
+
+  const effectiveSchema = useMemo<ReportSchema>(() => {
+    return {
+      ...schema,
+      fields
+    };
+  }, [schema, fields]);
+
   React.useEffect(() => {
     return () => {
       if (parseTimeoutRef.current) clearTimeout(parseTimeoutRef.current);
@@ -38,7 +58,7 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
       return;
     }
     try {
-      const parsed = parseDynamicCSV(text, schema);
+      const parsed = parseDynamicCSV(text, effectiveSchema);
       if (parsed.length === 0) {
         setErrorMsg("Nenhum registro com dados válidos foi encontrado no arquivo.");
         setParsedPreview([]);
@@ -97,7 +117,7 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
     if (parsedPreview.length === 0) return;
 
     // Inject Base name if the schema contains a column named 'Base'
-    const baseField = (schema?.fields || []).find(f => f && ((f.label && f.label.toLowerCase().includes('base')) || (f.id && f.id.toLowerCase().includes('base'))));
+    const baseField = (fields || []).find(f => f && ((f.label && f.label.toLowerCase().includes('base')) || (f.id && f.id.toLowerCase().includes('base'))));
     
     const recordsToImport = parsedPreview.map(item => {
       if (baseField) {
@@ -127,7 +147,15 @@ export function ImportModal({ isOpen, onClose, onImport, schema }: ImportModalPr
     setNomeBase("");
   };
 
-  const exampleRow = schema.fields.map(f => f.label).join(";") + "\n" + schema.fields.map(f => "Dado").join(";");
+  const exampleHeaders = fields.map(f => f.label || f.id).join(";");
+  const exampleValues = fields.map(f => {
+    const l = (f.label || f.id || "").toLowerCase();
+    if (l === 'status') return "Com Sucesso";
+    if (l.includes('observa')) return "Cliente informa que desconto foi realizado";
+    return "Dado";
+  }).join(";");
+
+  const exampleRow = exampleHeaders + "\n" + exampleValues;
 
   const downloadTemplate = () => {
     const blob = new Blob(["\uFEFF" + exampleRow], { type: "text/csv;charset=utf-8;" });
