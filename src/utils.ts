@@ -87,7 +87,6 @@ export const normalizeHeader = (str: string): string => {
 };
 
 // Parses CSV into Dynamic Records matching the active Report Schema
-// ENFORCES strict header titles and exact column ordering!
 export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicRecord[] => {
   if (!csvText || !csvText.trim()) return [];
   const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
@@ -108,63 +107,52 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
   }
 
   const expectedFields = schema?.fields || [];
-  
-  // Detect if the "Base" field is missing from the uploaded CSV
-  // The "Base" field is typically the first field (id: 'nomeBase' or label: 'Base')
-  const firstHeader = headerCols[0] ? normalizeHeader(headerCols[0]) : "";
-  const firstField = expectedFields[0];
-  const isBaseMissing = firstField && 
-    (firstField.id === 'nomeBase' || normalizeHeader(firstField.label) === 'base') &&
-    (firstHeader !== 'base' && firstHeader !== 'nomebase');
+  if (expectedFields.length === 0) return [];
 
-  let validationFields = isBaseMissing 
-    ? expectedFields.filter(f => f.id !== 'nomeBase' && normalizeHeader(f.label) !== 'base')
-    : expectedFields;
-
-  // Check if CSV includes Status/Observacao headers at the end
+  // Map each expected field to a column index in the uploaded CSV
+  // Strategy:
+  // 1. Try matching by column header title/label (case-insensitive & accent-insensitive)
+  // 2. If title matching fails, fallback to positional index (excluding trailing fixed columns like Status/Observação if missing)
   const normHeaderCols = headerCols.map(c => normalizeHeader(c));
-  const hasStatusInCSV = normHeaderCols.some(h => h === 'status');
-  const hasObsInCSV = normHeaderCols.some(h => h.includes('observa'));
 
-  // If CSV doesn't include Status/Observacao, don't require them in mandatory CSV validation
-  if (!hasStatusInCSV || !hasObsInCSV) {
-    validationFields = validationFields.filter(f => {
-      const normLabel = normalizeHeader(f.label || f.id || "");
-      if (!hasStatusInCSV && normLabel === 'status') return false;
-      if (!hasObsInCSV && normLabel.includes('observa')) return false;
-      return true;
-    });
-  }
+  // Build field mapping array: for each schema field, find CSV column index or -1
+  const fieldToColIndexMap: number[] = expectedFields.map((field, fIdx) => {
+    const normLabel = normalizeHeader(field.label || "");
+    const normId = normalizeHeader(field.id || "");
 
-  const expectedLabels = validationFields.map(f => f?.label || f?.id || "Coluna");
-
-  // Check if header count matches validation fields
-  if (headerCols.length < validationFields.length) {
-    throw new Error(
-      `O arquivo CSV possui apenas ${headerCols.length} colunas, mas a guia '${schema?.name || 'Relatório'}' exige ${validationFields.length} colunas.\nEstrutura esperada: ${expectedLabels.join(" ; ")}`
+    // 1. Look for exact label or ID match in CSV headers
+    let matchIdx = normHeaderCols.findIndex(
+      h => h === normLabel || h === normId || (normLabel && h && (h.includes(normLabel) || normLabel.includes(h)))
     );
-  }
 
-  const mismatchedCols: string[] = [];
-  validationFields.forEach((field, index) => {
-    const headerTitle = headerCols[index] || "";
-    const normHeader = normalizeHeader(headerTitle);
-    const normLabel = normalizeHeader(field?.label || "");
-    const normId = normalizeHeader(field?.id || "");
-
-    // Exact or normalized match
-    if (normHeader !== normLabel && normHeader !== normId) {
-      mismatchedCols.push(`Coluna ${index + 1}: Recebido "${headerTitle}", Esperado "${field?.label || field?.id}"`);
+    // Special alias matching for common Portuguese column names
+    if (matchIdx === -1) {
+      if (normLabel.includes("observa") || normId.includes("observa")) {
+        matchIdx = normHeaderCols.findIndex(h => h.includes("obs") || h.includes("observa"));
+      } else if (normLabel === "status" || normId === "status") {
+        matchIdx = normHeaderCols.findIndex(h => h === "status" || h.includes("stat"));
+      } else if (normLabel === "base" || normId === "nomebase") {
+        matchIdx = normHeaderCols.findIndex(h => h.includes("base"));
+      } else if (normLabel.includes("solicitado") || normId.includes("valorsolicitado")) {
+        matchIdx = normHeaderCols.findIndex(h => h.includes("solicitad"));
+      } else if (normLabel.includes("liberado") || normId.includes("valorliberado")) {
+        matchIdx = normHeaderCols.findIndex(h => h.includes("liberad"));
+      } else if (normLabel.includes("tentativa") || normId.includes("tentativa")) {
+        matchIdx = normHeaderCols.findIndex(h => h.includes("tentativ"));
+      }
     }
+
+    // 2. Positional fallback if CSV header matches standard column count
+    if (matchIdx === -1) {
+      // Check if CSV column at index fIdx exists
+      if (fIdx < headerCols.length) {
+        matchIdx = fIdx;
+      }
+    }
+
+    return matchIdx;
   });
 
-  if (mismatchedCols.length > 0) {
-    throw new Error(
-      `Os títulos ou a ordem das colunas no CSV estão incorretos para a guia '${schema?.name || 'Relatório'}'.\n\nDivergências encontradas:\n${mismatchedCols.join("\n")}\n\nTítulos e ordem esperados:\n${expectedLabels.join(" ; ")}`
-    );
-  }
-
-  // Header is valid! Map colIndex -> field.id
   const records: DynamicRecord[] = [];
 
   for (let i = 1; i < lines.length; i++) {
@@ -181,15 +169,19 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
       }
     });
 
-    // Populate data with matching values from CSV columns
-    validationFields.forEach((field, index) => {
+    // Populate data with values from mapped CSV columns
+    expectedFields.forEach((field, fIdx) => {
       if (!field || !field.id) return;
-      let cleaned = cols[index] !== undefined ? cleanColumn(cols[index]) : "";
+
+      const csvColIdx = fieldToColIndexMap[fIdx];
+      let cleaned = (csvColIdx !== undefined && csvColIdx >= 0 && cols[csvColIdx] !== undefined)
+        ? cleanColumn(cols[csvColIdx])
+        : "";
       
       const fId = field.id ? field.id.toLowerCase() : "";
       const fLabel = field.label ? field.label.toLowerCase() : "";
 
-      // Normalize Attempt 1 Date/Time
+      // Normalize Attempt 1 Date/Time if applicable
       if (fId.includes("tentativa") || fLabel.includes("tentativa")) {
         cleaned = normalizeDateTime(cleaned);
       } else if (field.type === 'list' && field.options) {
