@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3 } from "lucide-react";
-import { DynamicRecord, ReportSchema, UserRole, FieldDef } from "../types";
+import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw } from "lucide-react";
+import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
 import { exportDynamicCSV, formatCurrentDateTime } from "../utils";
+import { StatusConfigModal } from "./StatusConfigModal";
 
 interface ClientTableProps {
   schema: ReportSchema;
@@ -10,6 +11,7 @@ interface ClientTableProps {
   onUpdateRecord: (id: string, updatedData: Record<string, string>) => void;
   onUpdateRecordsBulk: (ids: string[], updatedData: Record<string, string>) => void;
   onDeleteRecords?: (ids: string[]) => void;
+  onUpdateSchema?: (updatedSchema: ReportSchema) => void;
 }
 
 export function ClientTable({
@@ -19,22 +21,44 @@ export function ClientTable({
   onUpdateRecord,
   onUpdateRecordsBulk,
   onDeleteRecords,
+  onUpdateSchema
 }: ClientTableProps) {
   const canEdit = userRole === 'admin' || userRole === 'editor';
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [isStatusConfigOpen, setIsStatusConfigOpen] = useState(false);
+  const [bulkEdits, setBulkEdits] = useState<Record<string, string>>({});
+
   const rowsPerPage = 50;
+
+  // Active status configs (stored on schema or fallback to default)
+  const statusConfigs = useMemo<StatusConfigItem[]>(() => {
+    if (schema?.statusConfigs && schema.statusConfigs.length > 0) {
+      return schema.statusConfigs;
+    }
+    return defaultStatusConfigs;
+  }, [schema?.statusConfigs]);
+
+  // Options for Status column
+  const statusOptions = useMemo(() => {
+    const opts = statusConfigs.map(c => c.motivo);
+    return ["-", ...opts];
+  }, [statusConfigs]);
+
+  // Ensure fixed columns at the end of schema fields
+  const fields = useMemo(() => {
+    return ensureFixedColumns(schema?.fields || [], statusOptions);
+  }, [schema?.fields, statusOptions]);
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [schema.id, searchTerm]);
-
-  const [bulkEdits, setBulkEdits] = useState<Record<string, string>>({});
+  }, [schema?.id, searchTerm, columnFilters]);
 
   const handleSort = (fieldId: string) => {
     if (sortField === fieldId) {
@@ -44,6 +68,20 @@ export function ClientTable({
       setSortOrder("asc");
     }
   };
+
+  const handleColumnFilterChange = (fieldId: string, val: string) => {
+    setColumnFilters(prev => ({
+      ...prev,
+      [fieldId]: val
+    }));
+  };
+
+  const clearAllFilters = () => {
+    setSearchTerm("");
+    setColumnFilters({});
+  };
+
+  const hasActiveFilters = searchTerm !== "" || Object.values(columnFilters).some(v => v && v.trim() !== "");
 
   const getCellValue = (recordData: Record<string, string>, field: FieldDef): string => {
     if (!recordData || !field) return "-";
@@ -81,8 +119,8 @@ export function ClientTable({
 
   const filteredAndSortedRecords = useMemo(() => {
     let result = getReportRecords(records, schema?.id || '');
-    const fields = schema?.fields || [];
 
+    // 1. Global search filter
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
       result = result.filter(record => 
@@ -93,6 +131,21 @@ export function ClientTable({
       );
     }
 
+    // 2. Per-column filters
+    const activeColFilters = Object.entries(columnFilters).filter(([_, val]) => val && val.trim() !== "");
+    if (activeColFilters.length > 0) {
+      result = result.filter(record => {
+        return activeColFilters.every(([fieldId, filterVal]) => {
+          const targetField = fields.find(f => f.id === fieldId);
+          if (!targetField) return true;
+          const cellVal = getCellValue(record?.data || {}, targetField);
+          if (!cellVal || cellVal === '-') return false;
+          return cellVal.toLowerCase().includes(filterVal.toLowerCase());
+        });
+      });
+    }
+
+    // 3. Sorting
     if (sortField) {
       const sortFieldDef = fields.find(f => f && f.id === sortField);
       result.sort((a, b) => {
@@ -113,61 +166,46 @@ export function ClientTable({
     }
 
     return result;
-  }, [records, searchTerm, sortField, sortOrder, schema]);
+  }, [records, searchTerm, columnFilters, sortField, sortOrder, schema?.id, fields]);
 
+  // Executive summary calculation based strictly on SubMotivo mapping
   const reportStats = useMemo(() => {
     const allReportRecords = getReportRecords(records, schema?.id || '');
-    const fields = schema?.fields || [];
-
-    const tentativaField = fields.find(f => f && ((f.id && f.id.toLowerCase().includes('tentativa')) || (f.label && f.label.toLowerCase().includes('tentativa'))));
-    const statusField = fields.find(f => f && ((f.id && f.id.toLowerCase().includes('status')) || (f.label && f.label.toLowerCase().includes('status')) || (f.id && f.id.toLowerCase().includes('stts')) || (f.label && f.label.toLowerCase().includes('stts'))));
-    const obsField = fields.find(f => f && ((f.id && f.id.toLowerCase().includes('observa')) || (f.label && f.label.toLowerCase().includes('observa'))));
+    const statusField = fields.find(f => f.id === 'status' || f.label.toLowerCase() === 'status');
 
     let baseTrabalhada = 0;
     let contatoEfetivo = 0;
     let semContatoEfetivo = 0;
 
     allReportRecords.forEach(r => {
-      const tentVal = tentativaField ? getCellValue(r?.data || {}, tentativaField) : '-';
       const statVal = statusField ? getCellValue(r?.data || {}, statusField) : '-';
-      const obsVal = obsField ? getCellValue(r?.data || {}, obsField) : '-';
-
-      const hasTentativa = tentVal !== '-' && tentVal.trim() !== '';
-      const hasStatus = statVal !== '-' && statVal.trim() !== '';
-      const hasObs = obsVal !== '-' && obsVal.trim() !== '';
       
-      if (hasTentativa || hasStatus || hasObs) {
-        baseTrabalhada++;
+      if (statVal && statVal !== '-' && statVal.trim() !== '') {
+        const normStat = statVal.trim().toLowerCase();
         
-        const obsValue = hasObs ? obsVal.toLowerCase() : '';
-        const statusValue = hasStatus ? statVal.toLowerCase() : '';
-        
-        let isContato = false;
-        
-        // Contato efetivo: positive progress outcomes or explicit success status
-        const positiveKeywords = [
-          "com sucesso",
-          "desconto foi realizado",
-          "finalizada/paga",
-          "documentação apresentada",
-          "link de formalização reenviado",
-          "dados bancários corrigidos",
-          "orientado voltar na jornada"
-        ];
+        // Find matching status config item
+        const matchingConfig = statusConfigs.find(c => c.motivo.trim().toLowerCase() === normStat);
 
-        if (positiveKeywords.some(kw => obsValue.includes(kw) || statusValue.includes(kw))) {
-           isContato = true;
-        }
-        
-        if (isContato) {
-           contatoEfetivo++;
+        if (matchingConfig) {
+          baseTrabalhada++;
+          if (matchingConfig.subMotivo === 'Sucesso') {
+            contatoEfetivo++;
+          } else if (matchingConfig.subMotivo === 'Sem Sucesso' || matchingConfig.subMotivo === 'Sem Resposta') {
+            semContatoEfetivo++;
+          }
         } else {
-           semContatoEfetivo++;
+          // Fallback heuristic for unconfigured strings if any
+          baseTrabalhada++;
+          if (normStat.includes('sucesso') && !normStat.includes('sem')) {
+            contatoEfetivo++;
+          } else {
+            semContatoEfetivo++;
+          }
         }
       }
     });
 
-    const totalBase = Math.max(allReportRecords.length, baseTrabalhada);
+    const totalBase = allReportRecords.length;
     const pendenciasDiscagem = Math.max(0, totalBase - baseTrabalhada);
 
     return {
@@ -177,11 +215,11 @@ export function ClientTable({
       semContatoEfetivo,
       pendenciasDiscagem
     };
-  }, [records, schema]);
+  }, [records, schema?.id, fields, statusConfigs]);
 
   const observacaoBreakdown = useMemo(() => {
-    const allReportRecords = getReportRecords(records, schema.id);
-    const obsField = schema.fields.find(f => f.id.toLowerCase().includes('observa') || f.label.toLowerCase().includes('observa'));
+    const allReportRecords = getReportRecords(records, schema?.id || '');
+    const obsField = fields.find(f => f.id === 'observacaoFinal' || f.label.toLowerCase().includes('observa'));
     
     if (!obsField) return { counts: [], total: 0 };
 
@@ -200,7 +238,7 @@ export function ClientTable({
 
     const sortedCounts = Object.entries(counts).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
     return { counts: sortedCounts, total };
-  }, [records, schema]);
+  }, [records, schema?.id, fields]);
 
   const formatPct = (val: number, total: number) => {
     if (total === 0) return "0,00%";
@@ -231,6 +269,17 @@ export function ClientTable({
     });
   };
 
+  const handleSaveStatusConfigs = (newConfigs: StatusConfigItem[]) => {
+    const updatedSchema: ReportSchema = {
+      ...schema,
+      statusConfigs: newConfigs,
+      fields: ensureFixedColumns(schema.fields, ["-", ...newConfigs.map(c => c.motivo)])
+    };
+    if (onUpdateSchema) {
+      onUpdateSchema(updatedSchema);
+    }
+  };
+
   const totalPages = Math.ceil(filteredAndSortedRecords.length / rowsPerPage);
   const paginatedRecords = filteredAndSortedRecords.slice(
     (currentPage - 1) * rowsPerPage,
@@ -258,7 +307,7 @@ export function ClientTable({
       ? filteredAndSortedRecords.filter((r) => selectedIds.includes(r.id))
       : filteredAndSortedRecords;
     
-    const csvContent = exportDynamicCSV(toExport, schema);
+    const csvContent = exportDynamicCSV(toExport, { ...schema, fields });
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -286,7 +335,7 @@ export function ClientTable({
 
   return (
     <div className="flex flex-col h-full bg-[#E4E3E0]">
-      {/* Resumo Executivo & Contagens (Calculado Automaticamente) */}
+      {/* Resumo Executivo & Contagens (Calculado Automaticamente por SubMotivo) */}
       <div className="bg-white border-b-2 border-[#141414] p-4 shrink-0">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* Métricas Principais */}
@@ -295,13 +344,23 @@ export function ClientTable({
               <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] flex items-center gap-2">
                 <BarChart3 size={16} /> Resumo Executivo: {schema.name}
               </h3>
-              <button
-                onClick={copySummary}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
-              >
-                <ClipboardCopy size={12} />
-                <span>{copyFeedback || "Copiar Resumo"}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsStatusConfigOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                  title="Gerenciar motivos e submotivos do status"
+                >
+                  <Settings2 size={12} />
+                  <span>Configurar Status</span>
+                </button>
+                <button
+                  onClick={copySummary}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                >
+                  <ClipboardCopy size={12} />
+                  <span>{copyFeedback || "Copiar Resumo"}</span>
+                </button>
+              </div>
             </div>
             <ul className="text-[11px] font-mono text-slate-700 space-y-1.5">
               <li className="flex justify-between border-b border-gray-200 pb-0.5">
@@ -372,24 +431,43 @@ export function ClientTable({
         </div>
       </div>
 
-      {/* Top Controls */}
+      {/* Top Controls & Global Search */}
       <div className="p-4 border-b-2 border-[#141414] bg-[#F2F1EB] shrink-0">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              type="text"
-              placeholder={`Buscar em ${schema.name}...`}
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-9 pr-4 py-2 border-2 border-[#141414] bg-white text-sm font-mono text-[#141414] focus:outline-none"
-            />
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
+          <div className="relative w-full max-w-sm flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder={`Buscar global em ${schema.name}...`}
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full pl-9 pr-4 py-2 border-2 border-[#141414] bg-white text-sm font-mono text-[#141414] focus:outline-none"
+              />
+            </div>
+            {hasActiveFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="flex items-center gap-1 px-3 py-2 bg-amber-100 border-2 border-amber-900 text-amber-950 text-xs font-bold uppercase hover:bg-amber-200 transition-colors shrink-0"
+                title="Limpar todos os filtros"
+              >
+                <RotateCcw size={14} />
+                Limpar Filtros
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsStatusConfigOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
+            >
+              <Settings2 size={14} />
+              Gerenciar Status
+            </button>
             <button
               onClick={exportSelected}
               className="flex items-center gap-2 px-3 py-2 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
@@ -397,7 +475,7 @@ export function ClientTable({
               <Download size={14} />
               Exportar
             </button>
-            {selectedIds.length > 0 && (
+            {selectedIds.length > 0 && onDeleteRecords && (
               <button
                 onClick={() => {
                   if (confirm("Tem certeza que deseja excluir os registros selecionados?")) {
@@ -416,11 +494,11 @@ export function ClientTable({
 
         {/* Dynamic Bulk Action Bar */}
         {selectedIds.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 p-2 bg-white border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+          <div className="flex flex-wrap items-center gap-3 p-2 bg-white border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] mt-3">
             <span className="text-[10px] uppercase font-black tracking-widest text-[#141414]">
               {`Ação em Massa (${selectedIds.length}):`}
             </span>
-            {(schema?.fields || []).filter(f => f && !f.readOnly).map(field => (
+            {fields.filter(f => f && !f.readOnly).map(field => (
               <div key={`bulk_${field.id}`} className="flex items-center gap-1 bg-[#F2F1EB] border-2 border-[#141414] pl-1 pr-1 py-1">
                 {field.type === 'list' ? (
                   <select
@@ -455,10 +533,11 @@ export function ClientTable({
         )}
       </div>
 
-      {/* Table Area */}
+      {/* Table Area with Per-Column Filters */}
       <div className="flex-1 overflow-auto bg-white border-y-2 border-[#141414]">
         <table className="w-full text-left border-collapse whitespace-nowrap">
           <thead className="sticky top-0 bg-[#F2F1EB] text-[#141414] uppercase text-[10px] z-10 font-bold border-b-2 border-[#141414]">
+            {/* Header Titles */}
             <tr>
               <th className="w-10 px-3 py-2 border-r border-[#141414]/40 text-center">
                 <input
@@ -468,22 +547,49 @@ export function ClientTable({
                   className="rounded-none border-2 border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-3.5 w-3.5"
                 />
               </th>
-              {(schema?.fields || []).map(field => (
+              {fields.map(field => (
                 <th key={field.id} className="px-3 py-2 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
-                  <div className="flex items-center gap-1 font-extrabold">
+                  <div className="flex items-center justify-between gap-1 font-extrabold">
                     <span>{field.label || field.id}</span>
                     {sortField === field.id && <span>{sortOrder === "asc" ? "▲" : "▼"}</span>}
                   </div>
                 </th>
               ))}
             </tr>
+
+            {/* Per-Column Filter Input Row */}
+            <tr className="bg-[#E4E3E0] border-t border-[#141414]/40">
+              <th className="px-2 py-1 text-center border-r border-[#141414]/40">
+                <Filter size={12} className="inline text-slate-600" />
+              </th>
+              {fields.map(field => (
+                <th key={`filter_${field.id}`} className="px-2 py-1 border-r border-[#141414]/40">
+                  <input
+                    type="text"
+                    placeholder={`Filtrar ${field.label || field.id}...`}
+                    value={columnFilters[field.id] || ""}
+                    onChange={(e) => handleColumnFilterChange(field.id, e.target.value)}
+                    className="w-full bg-white border border-[#141414] text-[10px] font-mono px-2 py-0.5 outline-none font-normal focus:border-[#141414] focus:ring-1 focus:ring-[#141414]"
+                  />
+                </th>
+              ))}
+            </tr>
           </thead>
+
           <tbody className="divide-y divide-[#141414]/30 text-xs text-[#141414] bg-[#E4E3E0]">
             {paginatedRecords.length === 0 && (
               <tr key="empty-row">
-                <td colSpan={(schema?.fields?.length || 0) + 1} className="px-6 py-12 text-center text-slate-600 bg-white/20">
+                <td colSpan={fields.length + 1} className="px-6 py-12 text-center text-slate-600 bg-white/20">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <span className="font-mono text-xs font-bold uppercase">Nenhum registro encontrado nesta base.</span>
+                    {hasActiveFilters && (
+                      <button
+                        onClick={clearAllFilters}
+                        className="text-xs font-mono font-bold text-blue-900 underline hover:text-black"
+                      >
+                        Limpar filtros de busca
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -493,61 +599,61 @@ export function ClientTable({
                 key={`row_${item.id}`}
                 className={`hover:bg-white/60 transition-colors ${selectedIds.includes(item.id) ? "bg-[#D1EED5]" : ""}`}
               >
-                  <td className="px-3 py-1.5 border-r border-[#141414]/20 text-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(item.id)}
-                      onChange={() => toggleSelect(item.id)}
-                      className="rounded-none border-2 border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-3.5 w-3.5"
-                    />
-                  </td>
-                  
-                  {(schema?.fields || []).map(field => {
-                    const cellVal = getCellValue(item?.data || {}, field);
-                    const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
-                    return (
-                      <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={cellVal}>
-                        <div className="w-full" key={`cell_container_${field.id}_${item.id}`}>
-                          {field.readOnly || !canEdit ? (
-                            <span key={`span_${field.id}_${item.id}`} className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-700'}>
-                              {cellVal}
-                            </span>
+                <td className="px-3 py-1.5 border-r border-[#141414]/20 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(item.id)}
+                    onChange={() => toggleSelect(item.id)}
+                    className="rounded-none border-2 border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-3.5 w-3.5"
+                  />
+                </td>
+                
+                {fields.map(field => {
+                  const cellVal = getCellValue(item?.data || {}, field);
+                  const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
+                  return (
+                    <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={cellVal}>
+                      <div className="w-full" key={`cell_container_${field.id}_${item.id}`}>
+                        {field.readOnly || !canEdit ? (
+                          <span key={`span_${field.id}_${item.id}`} className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-700'}>
+                            {cellVal}
+                          </span>
+                        ) : (
+                          field.type === 'list' ? (
+                            <select
+                              key={`select_${field.id}_${item.id}`}
+                              className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full"
+                              value={cellVal}
+                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                            >
+                              {(() => {
+                                const optionsArray = ["-", ...(field.options || [])];
+                                if (cellVal && cellVal !== "-" && !field.options?.includes(cellVal)) {
+                                  optionsArray.push(cellVal);
+                                }
+                                return Array.from(new Set(optionsArray)).map((opt, oIdx) => (
+                                  <option key={`${opt}_${oIdx}`} value={opt}>
+                                    {opt}
+                                  </option>
+                                ));
+                              })()}
+                            </select>
                           ) : (
-                            field.type === 'list' ? (
-                              <select
-                                key={`select_${field.id}_${item.id}`}
-                                className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full"
-                                value={cellVal}
-                                onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                              >
-                                {(() => {
-                                  const optionsArray = ["-", ...(field.options || [])];
-                                  if (cellVal && cellVal !== "-" && !field.options?.includes(cellVal)) {
-                                    optionsArray.push(cellVal);
-                                  }
-                                  return optionsArray.map((opt, oIdx) => (
-                                    <option key={`${opt}_${oIdx}`} value={opt}>
-                                      {opt}
-                                    </option>
-                                  ));
-                                })()}
-                              </select>
-                            ) : (
-                              <input
-                                key={`input_${field.id}_${item.id}`}
-                                type="text"
-                                className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
-                                value={cellVal === "-" ? "" : cellVal}
-                                onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                              />
-                            )
-                          )}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                            <input
+                              key={`input_${field.id}_${item.id}`}
+                              type="text"
+                              className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
+                              value={cellVal === "-" ? "" : cellVal}
+                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                            />
+                          )
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -582,6 +688,14 @@ export function ClientTable({
           </button>
         </div>
       </div>
+
+      {/* Modal for Status & Submotivo Configuration */}
+      <StatusConfigModal
+        isOpen={isStatusConfigOpen}
+        onClose={() => setIsStatusConfigOpen(false)}
+        statusConfigs={statusConfigs}
+        onSave={handleSaveStatusConfigs}
+      />
     </div>
   );
 }

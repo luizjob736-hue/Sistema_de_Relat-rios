@@ -117,13 +117,28 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
     (firstField.id === 'nomeBase' || normalizeHeader(firstField.label) === 'base') &&
     (firstHeader !== 'base' && firstHeader !== 'nomebase');
 
-  const validationFields = isBaseMissing 
+  let validationFields = isBaseMissing 
     ? expectedFields.filter(f => f.id !== 'nomeBase' && normalizeHeader(f.label) !== 'base')
     : expectedFields;
 
+  // Check if CSV includes Status/Observacao headers at the end
+  const normHeaderCols = headerCols.map(c => normalizeHeader(c));
+  const hasStatusInCSV = normHeaderCols.some(h => h === 'status');
+  const hasObsInCSV = normHeaderCols.some(h => h.includes('observa'));
+
+  // If CSV doesn't include Status/Observacao, don't require them in mandatory CSV validation
+  if (!hasStatusInCSV || !hasObsInCSV) {
+    validationFields = validationFields.filter(f => {
+      const normLabel = normalizeHeader(f.label || f.id || "");
+      if (!hasStatusInCSV && normLabel === 'status') return false;
+      if (!hasObsInCSV && normLabel.includes('observa')) return false;
+      return true;
+    });
+  }
+
   const expectedLabels = validationFields.map(f => f?.label || f?.id || "Coluna");
 
-  // Strict check: Header count & exact position titles matching
+  // Check if header count matches validation fields
   if (headerCols.length < validationFields.length) {
     throw new Error(
       `O arquivo CSV possui apenas ${headerCols.length} colunas, mas a guia '${schema?.name || 'Relatório'}' exige ${validationFields.length} colunas.\nEstrutura esperada: ${expectedLabels.join(" ; ")}`

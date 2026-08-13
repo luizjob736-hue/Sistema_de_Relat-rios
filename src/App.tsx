@@ -659,6 +659,7 @@ function App() {
                 onUpdateRecord={handleUpdateRecord}
                 onUpdateRecordsBulk={handleUpdateRecordsBulk}
                 onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
+                onUpdateSchema={handleSaveSchema}
               />
             </ErrorBoundary>
           ) : (
