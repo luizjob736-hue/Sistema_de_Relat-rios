@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield, Sparkles } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
+import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
 import { ClientTable } from "./components/ClientTable";
 import { SchemaBuilderModal } from "./components/SchemaBuilderModal";
 import { LoginScreen } from "./components/LoginScreen";
@@ -21,6 +22,13 @@ function App() {
   const [records, setRecords] = useState<DynamicRecord[]>([]);
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgressState>({
+    isImporting: false,
+    total: 0,
+    current: 0,
+    step: 'validating',
+    reportName: ''
+  });
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [editingSchema, setEditingSchema] = useState<ReportSchema | undefined>();
@@ -158,7 +166,7 @@ function App() {
 
         setRecords(finalRecords);
         try {
-          const backupRecords = finalRecords.slice(0, 5000);
+          const backupRecords = finalRecords.slice(0, 15000);
           localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
         } catch (e) {}
       } catch (err) {
@@ -310,6 +318,17 @@ function App() {
       showToast("Acesso negado: Apenas administradores podem importar dados.");
       return;
     }
+
+    setIsImportModalOpen(false);
+
+    setImportProgress({
+      isImporting: true,
+      total: newRecords.length,
+      current: 0,
+      step: 'validating',
+      reportName: activeSchema.name
+    });
+
     const isOverwrite = mode === "overwrite";
     let finalRecordsToSave: DynamicRecord[] = [];
     let updatedRecordsState: DynamicRecord[] = [];
@@ -348,22 +367,41 @@ function App() {
 
     setRecords(updatedRecordsState);
 
-    try {
-      const response = await fetch("/api/records/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          records: finalRecordsToSave,
-          mode: isOverwrite ? "overwrite" : "append",
-          reportId: activeSchema.id
-        }),
-      });
+    // Give visual feedback for validation step
+    await new Promise(r => setTimeout(r, 300));
+    setImportProgress(prev => ({ ...prev, step: 'uploading' }));
 
-      if (!response.ok) {
-        throw new Error("Falha HTTP " + response.status);
+    const CHUNK_SIZE = 500;
+    const totalChunks = Math.ceil(finalRecordsToSave.length / CHUNK_SIZE) || 1;
+    let savedCount = 0;
+
+    try {
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = finalRecordsToSave.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const chunkMode = (i === 0 && isOverwrite) ? "overwrite" : "append";
+
+        const response = await fetch("/api/records/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            records: chunk,
+            mode: chunkMode,
+            reportId: activeSchema.id
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Falha HTTP " + response.status);
+        }
+
+        savedCount += chunk.length;
+        setImportProgress(prev => ({
+          ...prev,
+          current: savedCount
+        }));
       }
 
-      showToast(`${newRecords.length} registros importados e salvos permanentemente no banco!`);
+      setImportProgress(prev => ({ ...prev, step: 'syncing' }));
 
       // Re-fetch state from server to confirm full sync
       const refreshRes = await fetch("/api/records");
@@ -374,12 +412,21 @@ function App() {
           localStorage.setItem("crm_records_backup", JSON.stringify(cleanRecs));
         } catch (e) {}
       }
-    } catch (err) {
+
+      setImportProgress(prev => ({
+        ...prev,
+        step: 'completed',
+        current: newRecords.length
+      }));
+      showToast(`${newRecords.length} registros importados com sucesso!`);
+    } catch (err: any) {
       console.error(err);
-      showToast("Erro ao salvar no banco.");
+      setImportProgress(prev => ({
+        ...prev,
+        step: 'error',
+        errorMessage: err?.message || "Erro ao salvar no banco."
+      }));
     }
-    
-    setIsImportModalOpen(false);
   };
 
   const handleDeduplicate = async () => {
@@ -626,6 +673,13 @@ function App() {
           onClose={() => setIsImportModalOpen(false)}
           onImport={handleImport}
           schema={activeSchema}
+        />
+      )}
+
+      {importProgress.isImporting && (
+        <ImportProgressModal
+          progress={importProgress}
+          onClose={() => setImportProgress(prev => ({ ...prev, isImporting: false }))}
         />
       )}
 
