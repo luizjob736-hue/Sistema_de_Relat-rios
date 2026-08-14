@@ -51,6 +51,22 @@ export function ClientTable({
     return ["-", ...opts];
   }, [statusConfigs]);
 
+  const getFieldWidthClass = (field: FieldDef) => {
+    const idLower = (field.id || '').toLowerCase();
+    const labelLower = (field.label || '').toLowerCase();
+
+    if (idLower === 'status' || labelLower === 'status' || idLower.includes('status') || labelLower.includes('status')) {
+      return 'min-w-[280px] w-[300px]';
+    }
+    if (idLower.includes('observa') || labelLower.includes('observa')) {
+      return 'min-w-[380px] w-[420px]';
+    }
+    if (idLower.includes('nome') || labelLower.includes('nome')) {
+      return 'min-w-[180px] max-w-[300px]';
+    }
+    return 'min-w-[120px] max-w-[220px]';
+  };
+
   // Ensure fixed columns at the end of schema fields
   const fields = useMemo(() => {
     return ensureFixedColumns(schema?.fields || [], statusOptions);
@@ -103,6 +119,57 @@ export function ClientTable({
       }
     }
     return "-";
+  };
+
+  const getRowColorClass = (item: DynamicRecord) => {
+    const isSelected = selectedIds.includes(item.id);
+    if (isSelected) {
+      return "bg-[#D1EED5] hover:bg-[#C2E8C7] transition-colors font-medium";
+    }
+
+    const statusField = fields.find(f => f.id === 'status' || f.label.toLowerCase() === 'status');
+    const statusVal = statusField ? getCellValue(item?.data || {}, statusField) : '-';
+
+    if (!statusVal || statusVal === "-" || statusVal.trim() === "") {
+      return "hover:bg-white/60 transition-colors";
+    }
+
+    const sNorm = statusVal.trim().toLowerCase();
+
+    // Check matched config from statusConfigs if exists
+    const config = statusConfigs.find(c => c.motivo === statusVal || c.motivo.trim().toLowerCase() === sNorm);
+    const sub = config?.subMotivo;
+
+    // 1. Sem Sucesso -> Soft Pastel Red
+    if (
+      sub === 'Sem Sucesso' ||
+      sNorm === 'sem sucesso' ||
+      sNorm.includes('sem sucesso')
+    ) {
+      return "bg-[#FCE8E6] hover:bg-[#F9D5D2] transition-colors";
+    }
+
+    // 2. Sem Resposta / Pending -> Soft Pastel Yellow
+    if (
+      sub === 'Sem Resposta' ||
+      sNorm === 'sem resposta' ||
+      sNorm.includes('sem resposta')
+    ) {
+      return "bg-[#FFF8E1] hover:bg-[#FFF0B3] transition-colors";
+    }
+
+    // 3. Com Sucesso -> Soft Pastel Green
+    if (
+      sub === 'Sucesso' ||
+      sNorm === 'com sucesso' ||
+      sNorm === 'sucesso' ||
+      sNorm.includes('com sucesso') ||
+      (sNorm.includes('sucesso') && !sNorm.includes('sem sucesso'))
+    ) {
+      return "bg-[#E6F4EA] hover:bg-[#C8E6C9] transition-colors";
+    }
+
+    return "hover:bg-white/60 transition-colors";
   };
 
   const getReportRecords = (allRecs: DynamicRecord[], schemaId: string) => {
@@ -558,7 +625,7 @@ export function ClientTable({
                 />
               </th>
               {fields.map(field => (
-                <th key={field.id} className="px-2.5 py-1.5 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
+                <th key={field.id} className={`px-2.5 py-1.5 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors ${getFieldWidthClass(field)}`} onClick={() => handleSort(field.id)}>
                   <div className="flex items-center justify-between gap-1 font-extrabold tracking-wide">
                     <span>{field.label || field.id}</span>
                     {sortField === field.id && <span>{sortOrder === "asc" ? "▲" : "▼"}</span>}
@@ -573,7 +640,7 @@ export function ClientTable({
                 <Filter size={12} className="inline text-slate-600" />
               </th>
               {fields.map(field => (
-                <th key={`filter_${field.id}`} className="px-1.5 py-0.5 border-r border-[#141414]/40">
+                <th key={`filter_${field.id}`} className={`px-1.5 py-0.5 border-r border-[#141414]/40 ${getFieldWidthClass(field)}`}>
                   <input
                     type="text"
                     placeholder={`Filtrar ${field.label || field.id}...`}
@@ -607,7 +674,7 @@ export function ClientTable({
             {paginatedRecords.length > 0 && paginatedRecords.map((item) => (
               <tr
                 key={`row_${item.id}`}
-                className={`hover:bg-white/60 transition-colors ${selectedIds.includes(item.id) ? "bg-[#D1EED5]" : ""}`}
+                className={getRowColorClass(item)}
               >
                 <td className="px-2 py-1 border-r border-[#141414]/20 text-center">
                   <input
@@ -622,7 +689,7 @@ export function ClientTable({
                   const cellVal = getCellValue(item?.data || {}, field);
                   const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
                   return (
-                    <td key={field.id} className="px-2.5 py-1 border-r border-[#141414]/20 font-mono text-xs max-w-[200px] truncate" title={cellVal}>
+                    <td key={field.id} className={`px-2.5 py-1 border-r border-[#141414]/20 font-mono text-xs ${getFieldWidthClass(field)}`} title={cellVal}>
                       <div className="w-full text-xs" key={`cell_container_${field.id}_${item.id}`}>
                         {field.readOnly || !canEdit ? (
                           <span key={`span_${field.id}_${item.id}`} className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-800'}>
