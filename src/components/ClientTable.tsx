@@ -362,7 +362,7 @@ export function ClientTable({
                 </button>
               </div>
             </div>
-            <ul className="text-[11px] font-mono text-slate-700 space-y-1.5">
+            <ul className="text-xs font-mono text-slate-700 space-y-1.5">
               <li className="flex justify-between border-b border-gray-200 pb-0.5">
                 <span className="font-bold text-[#141414]">Total da base:</span>
                 <span className="font-bold font-mono">{reportStats.totalBase.toLocaleString('pt-BR')} clientes</span>
@@ -401,13 +401,13 @@ export function ClientTable({
               </button>
             </div>
             <table className="w-full text-xs text-left font-sans">
-              <thead className="bg-[#E4E3E0] text-[#141414] text-[10px] uppercase font-bold border-b border-[#141414]">
+              <thead className="bg-[#E4E3E0] text-[#141414] text-xs uppercase font-bold border-b border-[#141414]">
                 <tr>
                   <th className="px-2 py-1 border-r border-[#141414]">Observação Final</th>
                   <th className="px-2 py-1 w-20 text-right">Qtd.</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 text-[11px]">
+              <tbody className="divide-y divide-gray-200 text-xs">
                 {observacaoBreakdown.counts.length > 0 && observacaoBreakdown.counts.map((item, idx) => (
                   <tr key={`obs_${item.label}_${idx}`} className="hover:bg-white/60">
                     <td className="px-2 py-1 font-medium text-slate-800">{item.label}</td>
@@ -416,11 +416,11 @@ export function ClientTable({
                 ))}
                 {observacaoBreakdown.counts.length === 0 && (
                   <tr key="empty-obs">
-                    <td colSpan={2} className="px-2 py-3 text-center text-slate-500 italic text-[10px]">Nenhuma observação preenchida.</td>
+                    <td colSpan={2} className="px-2 py-3 text-center text-slate-500 italic text-xs">Nenhuma observação preenchida.</td>
                   </tr>
                 )}
               </tbody>
-              <tfoot className="bg-[#E4E3E0] font-bold border-t border-[#141414] text-[11px]">
+              <tfoot className="bg-[#E4E3E0] font-bold border-t border-[#141414] text-xs">
                 <tr>
                   <td className="px-2 py-1 border-r border-[#141414]">Total Geral</td>
                   <td className="px-2 py-1 text-right font-mono">{observacaoBreakdown.total}</td>
@@ -546,7 +546,7 @@ export function ClientTable({
       {/* Table Area with Per-Column Filters */}
       <div className="flex-1 overflow-auto bg-white border-y-2 border-[#141414]">
         <table className="w-full text-left border-collapse whitespace-nowrap">
-          <thead className="sticky top-0 bg-[#F2F1EB] text-[#141414] uppercase text-[10px] z-10 font-bold border-b-2 border-[#141414]">
+          <thead className="sticky top-0 bg-[#F2F1EB] text-[#141414] uppercase text-xs z-10 font-bold border-b-2 border-[#141414]">
             {/* Header Titles */}
             <tr>
               <th className="w-10 px-3 py-2 border-r border-[#141414]/40 text-center">
@@ -558,8 +558,8 @@ export function ClientTable({
                 />
               </th>
               {fields.map(field => (
-                <th key={field.id} className="px-3 py-2 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
-                  <div className="flex items-center justify-between gap-1 font-extrabold">
+                <th key={field.id} className="px-3.5 py-2.5 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
+                  <div className="flex items-center justify-between gap-1.5 font-extrabold tracking-wide">
                     <span>{field.label || field.id}</span>
                     {sortField === field.id && <span>{sortOrder === "asc" ? "▲" : "▼"}</span>}
                   </div>
@@ -570,7 +570,7 @@ export function ClientTable({
             {/* Per-Column Filter Input Row */}
             <tr className="bg-[#E4E3E0] border-t border-[#141414]/40">
               <th className="px-2 py-1 text-center border-r border-[#141414]/40">
-                <Filter size={12} className="inline text-slate-600" />
+                <Filter size={14} className="inline text-slate-600" />
               </th>
               {fields.map(field => (
                 <th key={`filter_${field.id}`} className="px-2 py-1 border-r border-[#141414]/40">
@@ -579,7 +579,7 @@ export function ClientTable({
                     placeholder={`Filtrar ${field.label || field.id}...`}
                     value={columnFilters[field.id] || ""}
                     onChange={(e) => handleColumnFilterChange(field.id, e.target.value)}
-                    className="w-full bg-white border border-[#141414] text-[10px] font-mono px-2 py-0.5 outline-none font-normal focus:border-[#141414] focus:ring-1 focus:ring-[#141414]"
+                    className="w-full bg-white border border-[#141414] text-xs font-mono px-2 py-1 outline-none font-normal focus:border-[#141414] focus:ring-1 focus:ring-[#141414]"
                   />
                 </th>
               ))}
@@ -609,7 +609,7 @@ export function ClientTable({
                 key={`row_${item.id}`}
                 className={`hover:bg-white/60 transition-colors ${selectedIds.includes(item.id) ? "bg-[#D1EED5]" : ""}`}
               >
-                <td className="px-3 py-1.5 border-r border-[#141414]/20 text-center">
+                <td className="px-3 py-2 border-r border-[#141414]/20 text-center">
                   <input
                     type="checkbox"
                     checked={selectedIds.includes(item.id)}
@@ -622,17 +622,17 @@ export function ClientTable({
                   const cellVal = getCellValue(item?.data || {}, field);
                   const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
                   return (
-                    <td key={field.id} className="px-3 py-1.5 border-r border-[#141414]/20 font-mono text-[10px] max-w-[160px] truncate" title={cellVal}>
-                      <div className="w-full" key={`cell_container_${field.id}_${item.id}`}>
+                    <td key={field.id} className="px-3 py-2 border-r border-[#141414]/20 font-mono text-xs max-w-[200px] truncate" title={cellVal}>
+                      <div className="w-full text-xs" key={`cell_container_${field.id}_${item.id}`}>
                         {field.readOnly || !canEdit ? (
-                          <span key={`span_${field.id}_${item.id}`} className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-700'}>
+                          <span key={`span_${field.id}_${item.id}`} className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-800'}>
                             {cellVal}
                           </span>
                         ) : (
                           field.type === 'list' ? (
                             <select
                               key={`select_${field.id}_${item.id}`}
-                              className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full"
+                              className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full text-xs"
                               value={cellVal}
                               onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
                             >
@@ -654,7 +654,7 @@ export function ClientTable({
                                 key={`input_${field.id}_${item.id}`}
                                 type="text"
                                 list={field.options && field.options.length > 0 ? `datalist_${field.id}` : undefined}
-                                className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
+                                className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full text-xs focus:bg-white transition-all px-1 py-0.5"
                                 value={cellVal === "-" ? "" : cellVal}
                                 onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
                               />
