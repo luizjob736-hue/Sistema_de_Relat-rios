@@ -555,57 +555,57 @@ function App() {
       )}
 
       {/* Header */}
-      <header className="border-b-4 border-[#141414] bg-white shrink-0">
-        <div className="px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#141414] flex items-center justify-center text-white shadow-[4px_4px_0px_#C5C4C0]">
-              <Users size={20} />
+      <header className="border-b-2 border-[#141414] bg-white shrink-0">
+        <div className="px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-[#141414] flex items-center justify-center text-white shadow-[2px_2px_0px_#C5C4C0]">
+              <Users size={16} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black uppercase tracking-tighter">Sistema de Relatórios</h1>
-                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 border border-[#141414] uppercase ${
+                <h1 className="text-base font-black uppercase tracking-tighter">Sistema de Relatórios</h1>
+                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 border border-[#141414] uppercase ${
                   userRole === 'admin' ? 'bg-[#141414] text-white' : userRole === 'viewer' ? 'bg-blue-100 text-blue-900 border-blue-950' : 'bg-slate-200 text-slate-800'
                 }`}>
                   {userRole === 'admin' ? 'Admin' : userRole === 'viewer' ? 'Visualização' : 'Operador'} : {currentUser}
                 </span>
               </div>
-              <p className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest">
+              <p className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-widest leading-none">
                 Gestão Dinâmica Multibases
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {userRole === 'admin' && (
               <>
                 <button
                   onClick={() => setIsUserManagementOpen(true)}
-                  className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                  className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
                 >
-                  <Shield size={16} /> Acessos
+                  <Shield size={14} /> Acessos
                 </button>
                 <button
                   onClick={() => {
                     setEditingSchema(activeSchema);
                     setIsSchemaModalOpen(true);
                   }}
-                  className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                  className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
                 >
-                  <LayoutGrid size={16} /> Configurar Guia Atual
+                  <LayoutGrid size={14} /> Guia Atual
                 </button>
                 <button
                   onClick={handleDeduplicate}
-                  className="flex items-center gap-2 bg-[#F2F1EB] border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                  className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
                   title="Verificar e remover registros antigos duplicados por Nome ou CPF"
                 >
-                  <Sparkles size={16} /> Limpar Duplicados
+                  <Sparkles size={14} /> Limpar Duplicados
                 </button>
                 <button
                   onClick={() => setIsImportModalOpen(true)}
-                  className="flex items-center gap-2 bg-[#141414] text-white border-2 border-[#141414] px-4 py-2 text-xs font-bold uppercase hover:bg-black transition-all shadow-[4px_4px_0px_#C5C4C0] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                  className="flex items-center gap-1.5 bg-[#141414] text-white border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-black transition-all shadow-[2px_2px_0px_#C5C4C0] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
                 >
-                  <Upload size={16} /> Importar Dados
+                  <Upload size={14} /> Importar Dados
                 </button>
                 <button
                   onClick={async () => {
@@ -628,33 +628,33 @@ function App() {
                       }
                     }
                   }}
-                  className="flex items-center gap-2 bg-red-100 border-2 border-[#141414] text-red-800 px-4 py-2 text-xs font-bold uppercase hover:bg-red-200 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+                  className="flex items-center gap-1.5 bg-red-100 border-2 border-[#141414] text-red-800 px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-red-200 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
                   title="Apagar todos os registros desta base"
                 >
-                  <Trash2 size={16} /> Apagar Base
+                  <Trash2 size={14} /> Base Apagar
                 </button>
               </>
             )}
             <button
               onClick={handleLogout}
               title="Sair do sistema"
-              className="flex items-center gap-2 bg-red-100 border-2 border-[#141414] text-red-700 px-3 py-2 text-xs font-bold uppercase hover:bg-red-200 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-1 active:translate-x-1 active:shadow-none"
+              className="flex items-center gap-1.5 bg-red-100 border-2 border-[#141414] text-red-700 px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-red-200 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
             >
-              <LogOut size={16} /> Sair
+              <LogOut size={14} /> Sair
             </button>
           </div>
         </div>
 
         {/* Tabs Bar */}
-        <div className="px-6 flex items-center gap-2 bg-[#E4E3E0] pt-2 overflow-x-auto hide-scrollbar border-t-2 border-[#141414]">
+        <div className="px-4 flex items-center gap-1.5 bg-[#E4E3E0] pt-1 overflow-x-auto hide-scrollbar border-t-2 border-[#141414]">
           {schemas.map(schema => (
             <div key={schema.id} className={`flex items-center border-2 border-b-0 border-[#141414] rounded-t-sm whitespace-nowrap transition-colors
                   ${activeSchemaId === schema.id 
-                    ? "bg-white text-[#141414] shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] pt-3" 
+                    ? "bg-white text-[#141414] shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] pt-1.5" 
                     : "bg-[#C5C4C0] text-[#141414]/60 hover:bg-[#D1D0CC]"}`}>
               <button
                 onClick={() => setActiveSchemaId(schema.id)}
-                className="pl-4 pr-1 py-2 text-[10px] font-black uppercase tracking-wider"
+                className="pl-3 pr-1 py-1 text-[10px] font-black uppercase tracking-wider"
               >
                 {schema.name}
               </button>

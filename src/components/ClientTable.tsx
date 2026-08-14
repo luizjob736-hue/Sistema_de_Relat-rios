@@ -336,33 +336,33 @@ export function ClientTable({
   return (
     <div className="flex flex-col h-full bg-[#E4E3E0]">
       {/* Resumo Executivo & Contagens (Calculado Automaticamente por SubMotivo) */}
-      <div className="bg-white border-b-2 border-[#141414] p-4 shrink-0">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="bg-white border-b-2 border-[#141414] p-2.5 shrink-0">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
           {/* Métricas Principais */}
-          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)]">
-            <div className="flex justify-between items-center mb-2 pb-1 border-b border-[#141414]">
-              <h3 className="text-xs font-black uppercase tracking-widest text-[#141414] flex items-center gap-2">
-                <BarChart3 size={16} /> Resumo Executivo: {schema.name}
+          <div className="bg-[#F2F1EB] p-2 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+            <div className="flex justify-between items-center mb-1 pb-1 border-b border-[#141414]">
+              <h3 className="text-[11px] font-black uppercase tracking-wider text-[#141414] flex items-center gap-1.5">
+                <BarChart3 size={14} /> Resumo Executivo: {schema.name}
               </h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setIsStatusConfigOpen(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                  className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
                   title="Gerenciar motivos e submotivos do status"
                 >
-                  <Settings2 size={12} />
+                  <Settings2 size={10} />
                   <span>Configurar Status</span>
                 </button>
                 <button
                   onClick={copySummary}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                  className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
                 >
-                  <ClipboardCopy size={12} />
+                  <ClipboardCopy size={10} />
                   <span>{copyFeedback || "Copiar Resumo"}</span>
                 </button>
               </div>
             </div>
-            <ul className="text-xs font-mono text-slate-700 space-y-1.5">
+            <ul className="text-[11px] font-mono text-slate-700 space-y-0.5">
               <li className="flex justify-between border-b border-gray-200 pb-0.5">
                 <span className="font-bold text-[#141414]">Total da base:</span>
                 <span className="font-bold font-mono">{reportStats.totalBase.toLocaleString('pt-BR')} clientes</span>
@@ -387,43 +387,43 @@ export function ClientTable({
           </div>
 
           {/* Tabela de Observação Final */}
-          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] max-h-48 overflow-y-auto">
-            <div className="flex justify-between items-center mb-2 pb-1 border-b border-[#141414] sticky top-0 bg-[#F2F1EB] z-10">
-              <h3 className="text-xs font-black uppercase tracking-widest text-[#141414]">
+          <div className="bg-[#F2F1EB] p-2 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] max-h-28 overflow-y-auto">
+            <div className="flex justify-between items-center mb-1 pb-1 border-b border-[#141414] sticky top-0 bg-[#F2F1EB] z-10">
+              <h3 className="text-[11px] font-black uppercase tracking-wider text-[#141414]">
                 Contagem (Observação Final)
               </h3>
               <button
                 onClick={copyObsTable}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
               >
-                <ClipboardCopy size={12} />
+                <ClipboardCopy size={10} />
                 Copiar Tabela
               </button>
             </div>
-            <table className="w-full text-xs text-left font-sans">
-              <thead className="bg-[#E4E3E0] text-[#141414] text-xs uppercase font-bold border-b border-[#141414]">
+            <table className="w-full text-[11px] text-left font-sans">
+              <thead className="bg-[#E4E3E0] text-[#141414] text-[10px] uppercase font-bold border-b border-[#141414]">
                 <tr>
-                  <th className="px-2 py-1 border-r border-[#141414]">Observação Final</th>
-                  <th className="px-2 py-1 w-20 text-right">Qtd.</th>
+                  <th className="px-1.5 py-0.5 border-r border-[#141414]">Observação Final</th>
+                  <th className="px-1.5 py-0.5 w-16 text-right">Qtd.</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 text-xs">
+              <tbody className="divide-y divide-gray-200 text-[10px]">
                 {observacaoBreakdown.counts.length > 0 && observacaoBreakdown.counts.map((item, idx) => (
                   <tr key={`obs_${item.label}_${idx}`} className="hover:bg-white/60">
-                    <td className="px-2 py-1 font-medium text-slate-800">{item.label}</td>
-                    <td className="px-2 py-1 text-right font-mono font-bold text-slate-900">{item.count}</td>
+                    <td className="px-1.5 py-0.5 font-medium text-slate-800">{item.label}</td>
+                    <td className="px-1.5 py-0.5 text-right font-mono font-bold text-slate-900">{item.count}</td>
                   </tr>
                 ))}
                 {observacaoBreakdown.counts.length === 0 && (
                   <tr key="empty-obs">
-                    <td colSpan={2} className="px-2 py-3 text-center text-slate-500 italic text-xs">Nenhuma observação preenchida.</td>
+                    <td colSpan={2} className="px-1.5 py-1 text-center text-slate-500 italic text-[10px]">Nenhuma observação preenchida.</td>
                   </tr>
                 )}
               </tbody>
-              <tfoot className="bg-[#E4E3E0] font-bold border-t border-[#141414] text-xs">
+              <tfoot className="bg-[#E4E3E0] font-bold border-t border-[#141414] text-[10px]">
                 <tr>
-                  <td className="px-2 py-1 border-r border-[#141414]">Total Geral</td>
-                  <td className="px-2 py-1 text-right font-mono">{observacaoBreakdown.total}</td>
+                  <td className="px-1.5 py-0.5 border-r border-[#141414]">Total Geral</td>
+                  <td className="px-1.5 py-0.5 text-right font-mono">{observacaoBreakdown.total}</td>
                 </tr>
               </tfoot>
             </table>
@@ -432,11 +432,11 @@ export function ClientTable({
       </div>
 
       {/* Top Controls & Global Search */}
-      <div className="p-4 border-b-2 border-[#141414] bg-[#F2F1EB] shrink-0">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
-          <div className="relative w-full max-w-sm flex items-center gap-2">
+      <div className="px-2.5 py-1.5 border-b-2 border-[#141414] bg-[#F2F1EB] shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="relative w-full max-w-xs flex items-center gap-1.5">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input
                 type="text"
                 placeholder={`Buscar global em ${schema.name}...`}
@@ -445,34 +445,34 @@ export function ClientTable({
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full pl-9 pr-4 py-2 border-2 border-[#141414] bg-white text-sm font-mono text-[#141414] focus:outline-none"
+                className="w-full pl-8 pr-3 py-1 border-2 border-[#141414] bg-white text-xs font-mono text-[#141414] focus:outline-none"
               />
             </div>
             {hasActiveFilters && (
               <button
                 onClick={clearAllFilters}
-                className="flex items-center gap-1 px-3 py-2 bg-amber-100 border-2 border-amber-900 text-amber-950 text-xs font-bold uppercase hover:bg-amber-200 transition-colors shrink-0"
+                className="flex items-center gap-1 px-2 py-1 bg-amber-100 border-2 border-amber-900 text-amber-950 text-[10px] font-bold uppercase hover:bg-amber-200 transition-colors shrink-0"
                 title="Limpar todos os filtros"
               >
-                <RotateCcw size={14} />
-                Limpar Filtros
+                <RotateCcw size={12} />
+                Limpar
               </button>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setIsStatusConfigOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
             >
-              <Settings2 size={14} />
+              <Settings2 size={12} />
               Gerenciar Status
             </button>
             <button
               onClick={exportSelected}
-              className="flex items-center gap-2 px-3 py-2 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
             >
-              <Download size={14} />
+              <Download size={12} />
               Exportar
             </button>
             {selectedIds.length > 0 && onDeleteRecords && (
@@ -483,9 +483,9 @@ export function ClientTable({
                     setSelectedIds([]);
                   }
                 }}
-                className="flex items-center gap-2 px-3 py-2 bg-red-100 border-2 border-red-900 text-red-900 text-xs font-bold uppercase hover:bg-red-900 hover:text-white transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 bg-red-100 border-2 border-red-900 text-red-900 text-[11px] font-bold uppercase hover:bg-red-900 hover:text-white transition-colors"
               >
-                <Trash2 size={14} />
+                <Trash2 size={12} />
                 Excluir ({selectedIds.length})
               </button>
             )}
@@ -494,15 +494,15 @@ export function ClientTable({
 
         {/* Dynamic Bulk Action Bar */}
         {selectedIds.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 p-2 bg-white border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] mt-3">
+          <div className="flex flex-wrap items-center gap-2 p-1.5 bg-white border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] mt-1.5">
             <span className="text-[10px] uppercase font-black tracking-widest text-[#141414]">
               {`Ação em Massa (${selectedIds.length}):`}
             </span>
             {fields.filter(f => f && !f.readOnly).map(field => (
-              <div key={`bulk_${field.id}`} className="flex items-center gap-1 bg-[#F2F1EB] border-2 border-[#141414] pl-1 pr-1 py-1">
+              <div key={`bulk_${field.id}`} className="flex items-center gap-1 bg-[#F2F1EB] border-2 border-[#141414] pl-1 pr-1 py-0.5">
                 {field.type === 'list' ? (
                   <select
-                    className="bg-transparent text-[10px] font-mono font-bold text-[#141414] outline-none max-w-[150px] cursor-pointer"
+                    className="bg-transparent text-[10px] font-mono font-bold text-[#141414] outline-none max-w-[130px] cursor-pointer"
                     value={bulkEdits[field.id] || ""}
                     onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
                   >
@@ -516,10 +516,10 @@ export function ClientTable({
                     <input
                       type="text"
                       list={field.options && field.options.length > 0 ? `datalist_bulk_${field.id}` : undefined}
-                      placeholder={`Novo ${field.label || field.id} (ou 'agora')`}
+                      placeholder={`Novo ${field.label || field.id}`}
                       value={bulkEdits[field.id] || ""}
                       onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
-                      className="bg-white border border-[#141414] px-1 text-[10px] font-mono outline-none max-w-[150px]"
+                      className="bg-white border border-[#141414] px-1 text-[10px] font-mono outline-none max-w-[130px]"
                     />
                     {field.options && field.options.length > 0 && (
                       <datalist id={`datalist_bulk_${field.id}`}>
@@ -532,10 +532,10 @@ export function ClientTable({
                 )}
                 <button
                   onClick={() => applyBulkEdit(field.id)}
-                  className="bg-[#141414] text-white p-1 hover:bg-black transition-colors"
+                  className="bg-[#141414] text-white p-0.5 hover:bg-black transition-colors"
                   title="Aplicar aos selecionados"
                 >
-                  <CheckSquare size={12} />
+                  <CheckSquare size={10} />
                 </button>
               </div>
             ))}
@@ -549,7 +549,7 @@ export function ClientTable({
           <thead className="sticky top-0 bg-[#F2F1EB] text-[#141414] uppercase text-xs z-10 font-bold border-b-2 border-[#141414]">
             {/* Header Titles */}
             <tr>
-              <th className="w-10 px-3 py-2 border-r border-[#141414]/40 text-center">
+              <th className="w-8 px-2 py-1.5 border-r border-[#141414]/40 text-center">
                 <input
                   type="checkbox"
                   checked={selectedIds.length === filteredAndSortedRecords.length && filteredAndSortedRecords.length > 0}
@@ -558,8 +558,8 @@ export function ClientTable({
                 />
               </th>
               {fields.map(field => (
-                <th key={field.id} className="px-3.5 py-2.5 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
-                  <div className="flex items-center justify-between gap-1.5 font-extrabold tracking-wide">
+                <th key={field.id} className="px-2.5 py-1.5 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors" onClick={() => handleSort(field.id)}>
+                  <div className="flex items-center justify-between gap-1 font-extrabold tracking-wide">
                     <span>{field.label || field.id}</span>
                     {sortField === field.id && <span>{sortOrder === "asc" ? "▲" : "▼"}</span>}
                   </div>
@@ -569,17 +569,17 @@ export function ClientTable({
 
             {/* Per-Column Filter Input Row */}
             <tr className="bg-[#E4E3E0] border-t border-[#141414]/40">
-              <th className="px-2 py-1 text-center border-r border-[#141414]/40">
-                <Filter size={14} className="inline text-slate-600" />
+              <th className="px-1.5 py-0.5 text-center border-r border-[#141414]/40">
+                <Filter size={12} className="inline text-slate-600" />
               </th>
               {fields.map(field => (
-                <th key={`filter_${field.id}`} className="px-2 py-1 border-r border-[#141414]/40">
+                <th key={`filter_${field.id}`} className="px-1.5 py-0.5 border-r border-[#141414]/40">
                   <input
                     type="text"
                     placeholder={`Filtrar ${field.label || field.id}...`}
                     value={columnFilters[field.id] || ""}
                     onChange={(e) => handleColumnFilterChange(field.id, e.target.value)}
-                    className="w-full bg-white border border-[#141414] text-xs font-mono px-2 py-1 outline-none font-normal focus:border-[#141414] focus:ring-1 focus:ring-[#141414]"
+                    className="w-full bg-white border border-[#141414] text-xs font-mono px-1.5 py-0.5 outline-none font-normal focus:border-[#141414] focus:ring-1 focus:ring-[#141414]"
                   />
                 </th>
               ))}
@@ -589,7 +589,7 @@ export function ClientTable({
           <tbody className="divide-y divide-[#141414]/30 text-xs text-[#141414] bg-[#E4E3E0]">
             {paginatedRecords.length === 0 && (
               <tr key="empty-row">
-                <td colSpan={fields.length + 1} className="px-6 py-12 text-center text-slate-600 bg-white/20">
+                <td colSpan={fields.length + 1} className="px-6 py-8 text-center text-slate-600 bg-white/20">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <span className="font-mono text-xs font-bold uppercase">Nenhum registro encontrado nesta base.</span>
                     {hasActiveFilters && (
@@ -609,7 +609,7 @@ export function ClientTable({
                 key={`row_${item.id}`}
                 className={`hover:bg-white/60 transition-colors ${selectedIds.includes(item.id) ? "bg-[#D1EED5]" : ""}`}
               >
-                <td className="px-3 py-2 border-r border-[#141414]/20 text-center">
+                <td className="px-2 py-1 border-r border-[#141414]/20 text-center">
                   <input
                     type="checkbox"
                     checked={selectedIds.includes(item.id)}
@@ -622,7 +622,7 @@ export function ClientTable({
                   const cellVal = getCellValue(item?.data || {}, field);
                   const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
                   return (
-                    <td key={field.id} className="px-3 py-2 border-r border-[#141414]/20 font-mono text-xs max-w-[200px] truncate" title={cellVal}>
+                    <td key={field.id} className="px-2.5 py-1 border-r border-[#141414]/20 font-mono text-xs max-w-[200px] truncate" title={cellVal}>
                       <div className="w-full text-xs" key={`cell_container_${field.id}_${item.id}`}>
                         {field.readOnly || !canEdit ? (
                           <span key={`span_${field.id}_${item.id}`} className={isHighlight ? 'font-bold text-[#141414]' : 'text-slate-800'}>
@@ -632,7 +632,7 @@ export function ClientTable({
                           field.type === 'list' ? (
                             <select
                               key={`select_${field.id}_${item.id}`}
-                              className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full text-xs"
+                              className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full text-xs py-0.5"
                               value={cellVal}
                               onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
                             >
@@ -679,7 +679,7 @@ export function ClientTable({
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between p-3 border-t-2 border-[#141414] bg-[#F2F1EB] shrink-0">
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-t-2 border-[#141414] bg-[#F2F1EB] shrink-0">
         <span className="text-[10px] font-bold text-[#141414] uppercase tracking-wider">
           {filteredAndSortedRecords.length > 0 
             ? `Mostrando ${(currentPage - 1) * rowsPerPage + 1} a ${Math.min(currentPage * rowsPerPage, filteredAndSortedRecords.length)} de ${filteredAndSortedRecords.length}`
@@ -691,18 +691,18 @@ export function ClientTable({
             type="button"
             disabled={currentPage <= 1}
             onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-            className="px-3 py-1 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
+            className="px-2.5 py-0.5 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
           >
             Anterior
           </button>
-          <div className="px-3 py-1 text-xs font-mono font-bold bg-[#141414] text-white border-2 border-[#141414]">
+          <div className="px-2.5 py-0.5 text-[11px] font-mono font-bold bg-[#141414] text-white border-2 border-[#141414]">
             {`${currentPage} / ${Math.max(1, totalPages)}`}
           </div>
           <button
             type="button"
             disabled={currentPage >= totalPages || totalPages === 0}
             onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-            className="px-3 py-1 bg-white border-2 border-[#141414] text-[#141414] text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
+            className="px-2.5 py-0.5 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
           >
             Próxima
           </button>
