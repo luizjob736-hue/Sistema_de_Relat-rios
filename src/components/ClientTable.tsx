@@ -412,14 +412,16 @@ export function ClientTable({
                 <BarChart3 size={14} /> Resumo Executivo: {schema.name}
               </h3>
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setIsStatusConfigOpen(true)}
-                  className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
-                  title="Gerenciar motivos e submotivos do status"
-                >
-                  <Settings2 size={10} />
-                  <span>Configurar Status</span>
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => setIsStatusConfigOpen(true)}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                    title="Gerenciar motivos e submotivos do status"
+                  >
+                    <Settings2 size={10} />
+                    <span>Configurar Status</span>
+                  </button>
+                )}
                 <button
                   onClick={copySummary}
                   className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
@@ -528,13 +530,15 @@ export function ClientTable({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setIsStatusConfigOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
-            >
-              <Settings2 size={12} />
-              Gerenciar Status
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => setIsStatusConfigOpen(true)}
+                className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
+              >
+                <Settings2 size={12} />
+                Gerenciar Status
+              </button>
+            )}
             <button
               onClick={exportSelected}
               className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
@@ -542,7 +546,7 @@ export function ClientTable({
               <Download size={12} />
               Exportar
             </button>
-            {selectedIds.length > 0 && onDeleteRecords && (
+            {canEdit && selectedIds.length > 0 && onDeleteRecords && (
               <button
                 onClick={() => {
                   if (confirm("Tem certeza que deseja excluir os registros selecionados?")) {
@@ -560,7 +564,7 @@ export function ClientTable({
         </div>
 
         {/* Dynamic Bulk Action Bar */}
-        {selectedIds.length > 0 && (
+        {canEdit && selectedIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 p-1.5 bg-white border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] mt-1.5">
             <span className="text-[10px] uppercase font-black tracking-widest text-[#141414]">
               {`Ação em Massa (${selectedIds.length}):`}
@@ -777,12 +781,14 @@ export function ClientTable({
       </div>
 
       {/* Modal for Status & Submotivo Configuration */}
-      <StatusConfigModal
-        isOpen={isStatusConfigOpen}
-        onClose={() => setIsStatusConfigOpen(false)}
-        statusConfigs={statusConfigs}
-        onSave={handleSaveStatusConfigs}
-      />
+      {canEdit && (
+        <StatusConfigModal
+          isOpen={isStatusConfigOpen}
+          onClose={() => setIsStatusConfigOpen(false)}
+          statusConfigs={statusConfigs}
+          onSave={handleSaveStatusConfigs}
+        />
+      )}
     </div>
   );
 }
