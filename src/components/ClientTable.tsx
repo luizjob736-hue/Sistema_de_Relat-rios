@@ -512,13 +512,23 @@ export function ClientTable({
                     ))}
                   </select>
                 ) : (
-                  <input
-                    type="text"
-                    placeholder={`Novo ${field.label || field.id} (ou 'agora')`}
-                    value={bulkEdits[field.id] || ""}
-                    onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
-                    className="bg-white border border-[#141414] px-1 text-[10px] font-mono outline-none max-w-[150px]"
-                  />
+                  <>
+                    <input
+                      type="text"
+                      list={field.options && field.options.length > 0 ? `datalist_bulk_${field.id}` : undefined}
+                      placeholder={`Novo ${field.label || field.id} (ou 'agora')`}
+                      value={bulkEdits[field.id] || ""}
+                      onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
+                      className="bg-white border border-[#141414] px-1 text-[10px] font-mono outline-none max-w-[150px]"
+                    />
+                    {field.options && field.options.length > 0 && (
+                      <datalist id={`datalist_bulk_${field.id}`}>
+                        {field.options.filter(o => o !== "-").map((opt, oIdx) => (
+                          <option key={`bulk_opt_${opt}_${oIdx}`} value={opt} />
+                        ))}
+                      </datalist>
+                    )}
+                  </>
                 )}
                 <button
                   onClick={() => applyBulkEdit(field.id)}
@@ -639,13 +649,23 @@ export function ClientTable({
                               })()}
                             </select>
                           ) : (
-                            <input
-                              key={`input_${field.id}_${item.id}`}
-                              type="text"
-                              className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
-                              value={cellVal === "-" ? "" : cellVal}
-                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                            />
+                            <>
+                              <input
+                                key={`input_${field.id}_${item.id}`}
+                                type="text"
+                                list={field.options && field.options.length > 0 ? `datalist_${field.id}` : undefined}
+                                className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full focus:bg-white transition-all px-1"
+                                value={cellVal === "-" ? "" : cellVal}
+                                onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                              />
+                              {field.options && field.options.length > 0 && (
+                                <datalist id={`datalist_${field.id}`}>
+                                  {field.options.filter(o => o !== "-").map((opt, oIdx) => (
+                                    <option key={`${opt}_${oIdx}`} value={opt} />
+                                  ))}
+                                </datalist>
+                              )}
+                            </>
                           )
                         )}
                       </div>

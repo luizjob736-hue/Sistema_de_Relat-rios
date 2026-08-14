@@ -57,9 +57,8 @@ export function ensureFixedColumns(fields: FieldDef[], statusOptions: string[] =
   const fixedObservacao: FieldDef = {
     id: 'observacaoFinal',
     label: 'Observação final',
-    type: 'list',
+    type: 'text',
     options: [
-      "-",
       "Cliente informa que desconto foi realizado",
       "Cliente informa que desconto não foi realizado",
       "Sem contato com o cliente"
