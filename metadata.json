@@ -1,5 +1,5 @@
 {
-  "name": "Gerenciador de Clientes e Tentativas",
+  "name": "Gestão Dinâmica Multibases",
   "description": "Aplicativo para controle de tentativas de contato com clientes, com suporte a edição de status e importação de dados no padrão Base.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
