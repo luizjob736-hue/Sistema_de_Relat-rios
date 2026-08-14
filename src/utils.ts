@@ -109,18 +109,34 @@ export const normalizeName = (raw: string | undefined | null): string => {
   return "";
 };
 
+export const normalizeContract = (raw: string | undefined | null): string => {
+  if (!raw) return "";
+  const s = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  if (s && s !== "-" && s !== "—" && s !== "0" && s !== "null" && s !== "undefined") {
+    return s;
+  }
+  return "";
+};
+
 export const getRecordIdentifiers = (recData: Record<string, string>, fields?: any[]) => {
   let rawCpf = "";
   let rawName = "";
+  let rawContract = "";
 
   if (recData) {
     for (const [key, val] of Object.entries(recData)) {
       if (!val || val === "-" || val === "—") continue;
-      const kLower = key.toLowerCase();
-      if (!rawCpf && kLower.includes("cpf")) {
+      const kNorm = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      if (!rawCpf && kNorm.includes("cpf")) {
         rawCpf = val;
       }
-      if (!rawName && (kLower === "nome" || kLower === "nomecliente" || (kLower.includes("nome") && !kLower.includes("base")))) {
+      if (!rawContract && kNorm.includes("contrato")) {
+        rawContract = val;
+      }
+      if (!rawName && (kNorm === "nome" || kNorm === "nomecliente" || (kNorm.includes("nome") && !kNorm.includes("base")))) {
         rawName = val;
       }
     }
@@ -131,11 +147,14 @@ export const getRecordIdentifiers = (recData: Record<string, string>, fields?: a
       if (!field || !field.id) continue;
       const val = recData ? recData[field.id] : "";
       if (!val || val === "-" || val === "—") continue;
-      const labelLower = (field.label || "").toLowerCase();
-      if (!rawCpf && labelLower.includes("cpf")) {
+      const labelNorm = (field.label || field.id || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      if (!rawCpf && labelNorm.includes("cpf")) {
         rawCpf = val;
       }
-      if (!rawName && labelLower.includes("nome") && !labelLower.includes("base")) {
+      if (!rawContract && labelNorm.includes("contrato")) {
+        rawContract = val;
+      }
+      if (!rawName && labelNorm.includes("nome") && !labelNorm.includes("base")) {
         rawName = val;
       }
     }
@@ -143,6 +162,7 @@ export const getRecordIdentifiers = (recData: Record<string, string>, fields?: a
 
   return {
     cpf: normalizeCpf(rawCpf),
+    contractId: normalizeContract(rawContract),
     name: normalizeName(rawName)
   };
 };
@@ -267,6 +287,19 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
       }
 
       data[field.id] = cleaned;
+    });
+
+    // Ensure raw key columns (NOME, ID CONTRATO, CPF) are also stored if present in headerCols
+    headerCols.forEach((colHeader, cIdx) => {
+      if (colHeader && cols[cIdx] !== undefined) {
+        const val = cleanColumn(cols[cIdx]);
+        if (val && val !== "-" && val !== "—") {
+          const normH = normalizeHeader(colHeader);
+          if (normH.includes("cpf") && !data["cpf"]) data["cpf"] = val;
+          if (normH.includes("contrato") && !data["idContrato"]) data["idContrato"] = val;
+          if ((normH === "nome" || normH === "nomecliente" || (normH.includes("nome") && !normH.includes("base"))) && !data["nome"]) data["nome"] = val;
+        }
+      }
     });
 
     // Keep _order tracking for fixed position ordering

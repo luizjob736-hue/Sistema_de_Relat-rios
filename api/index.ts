@@ -452,60 +452,86 @@ async function deduplicateRecordsInDb() {
       return String(val).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
     };
 
+    const cleanContract = (val: any) => {
+      if (!val || val === '-' || val === '—') return '';
+      const s = String(val).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      return (s && s !== '0' && s !== 'null' && s !== 'undefined') ? s : '';
+    };
+
     function getRecordKeys(r: any) {
       const s = schemaMap.get(r.report_id) || schemaMap.get('default');
       const fields = s ? (s.fields || []) : [];
       let cpf = '';
       let name = '';
+      let contract = '';
       let base = '';
 
-      for (const [k, v] of Object.entries(r.data || {})) {
-        if (!v || v === '-' || v === '—') continue;
-        const f = fields.find((field: any) => field.id === k);
-        const label = f ? (f.label || f.id) : k;
-        const normLabel = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+      if (r.data) {
+        for (const [k, v] of Object.entries(r.data)) {
+          if (!v || v === '-' || v === '—') continue;
+          const f = fields.find((field: any) => field.id === k);
+          const label = f ? (f.label || f.id) : k;
+          const normLabel = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 
-        if (normLabel === 'cpf') {
-          cpf = cleanCpf(v);
-        } else if (normLabel === 'nome') {
-          name = cleanName(v);
-        } else if (normLabel === 'base' || normLabel === 'nomebase') {
-          base = String(v);
+          if (!cpf && normLabel.includes('cpf')) {
+            cpf = cleanCpf(v);
+          } else if (!contract && normLabel.includes('contrato')) {
+            contract = cleanContract(v);
+          } else if (!name && (normLabel === 'nome' || normLabel === 'nomecliente' || (normLabel.includes('nome') && !normLabel.includes('base')))) {
+            name = cleanName(v);
+          } else if (!base && (normLabel === 'base' || normLabel === 'nomebase')) {
+            base = String(v);
+          }
         }
       }
 
-      if (!cpf) {
-        if (r.data.cpf) cpf = cleanCpf(r.data.cpf);
-        else if (r.data.CPF) cpf = cleanCpf(r.data.CPF);
+      // Direct fallbacks in r.data
+      if (!cpf && r.data) {
+        for (const [k, v] of Object.entries(r.data)) {
+          if (k.toLowerCase().includes('cpf')) { cpf = cleanCpf(v); break; }
+        }
       }
-      if (!name) {
-        if (r.data.nome) name = cleanName(r.data.nome);
-        else if (r.data.NOME) name = cleanName(r.data.NOME);
+      if (!contract && r.data) {
+        for (const [k, v] of Object.entries(r.data)) {
+          if (k.toLowerCase().includes('contrato')) { contract = cleanContract(v); break; }
+        }
       }
-      if (!base) {
+      if (!name && r.data) {
+        for (const [k, v] of Object.entries(r.data)) {
+          if (k.toLowerCase() === 'nome' || k.toLowerCase() === 'nomecliente' || (k.toLowerCase().includes('nome') && !k.toLowerCase().includes('base'))) {
+            name = cleanName(v); break;
+          }
+        }
+      }
+      if (!base && r.data) {
         if (r.data.nomeBase) base = String(r.data.nomeBase);
         else if (r.data.Base) base = String(r.data.Base);
       }
 
       const isContatoAtivo = base.toLowerCase().includes('contato ativo');
 
-      return { cpf, name, isContatoAtivo };
+      return { cpf, contract, name, isContatoAtivo };
     }
 
     const recordInfos = records.map((r: any, idx: number) => {
-      const { cpf, name, isContatoAtivo } = getRecordKeys(r);
+      const { cpf, contract, name, isContatoAtivo } = getRecordKeys(r);
       const o = r.data && r.data._order ? Number(r.data._order) : idx;
       const orderVal = isNaN(o) ? idx : o;
-      return { idx, id: r.id, report_id: r.report_id, cpf, name, isContatoAtivo, orderVal };
+      return { idx, id: r.id, report_id: r.report_id, cpf, contract, name, isContatoAtivo, orderVal };
     });
 
     const cpfGroups = new Map<string, any[]>();
+    const contractGroups = new Map<string, any[]>();
     const nameGroups = new Map<string, any[]>();
 
     recordInfos.forEach((r: any) => {
       if (r.cpf && r.cpf.length >= 6) {
         if (!cpfGroups.has(r.cpf)) cpfGroups.set(r.cpf, []);
         cpfGroups.get(r.cpf)!.push(r);
+      }
+      if (r.contract && r.contract.length >= 2) {
+        if (!contractGroups.has(r.contract)) contractGroups.set(r.contract, []);
+        contractGroups.get(r.contract)!.push(r);
       }
       if (r.name && r.name.length >= 3) {
         if (!nameGroups.has(r.name)) nameGroups.set(r.name, []);
@@ -516,6 +542,7 @@ async function deduplicateRecordsInDb() {
     const deleteIds = new Set<string>();
     const recordScore = (r: any) => (r.isContatoAtivo ? 10000000 : 0) + r.orderVal;
 
+    // 1. Cross-check duplicates by CPF
     cpfGroups.forEach((group) => {
       if (group.length > 1) {
         group.sort((a, b) => recordScore(b) - recordScore(a));
@@ -525,6 +552,18 @@ async function deduplicateRecordsInDb() {
       }
     });
 
+    // 2. Cross-check duplicates by ID Contrato
+    contractGroups.forEach((group) => {
+      const remaining = group.filter(r => !deleteIds.has(r.id));
+      if (remaining.length > 1) {
+        remaining.sort((a, b) => recordScore(b) - recordScore(a));
+        for (let i = 1; i < remaining.length; i++) {
+          deleteIds.add(remaining[i].id);
+        }
+      }
+    });
+
+    // 3. Cross-check duplicates by Nome
     nameGroups.forEach((group) => {
       const remaining = group.filter(r => !deleteIds.has(r.id));
       if (remaining.length > 1) {

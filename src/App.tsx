@@ -342,14 +342,18 @@ function App() {
       recordsMap.set(r.id, r);
     });
 
-    // Build lookup maps for fast CPF / Name match across ALL kept records
+    // Build lookup maps for fast CPF / Contract / Name match across ALL kept records
     const cpfLookup = new Map<string, string>(); // normalizedCpf -> recordId
+    const contractLookup = new Map<string, string>(); // normalizedContract -> recordId
     const nameLookup = new Map<string, string>(); // normalizedName -> recordId
 
     recordsMap.forEach((r) => {
       const ids = getRecordIdentifiers(r.data, activeSchema.fields);
       if (ids.cpf && !cpfLookup.has(ids.cpf)) {
         cpfLookup.set(ids.cpf, r.id);
+      }
+      if (ids.contractId && !contractLookup.has(ids.contractId)) {
+        contractLookup.set(ids.contractId, r.id);
       }
       if (ids.name && !nameLookup.has(ids.name)) {
         nameLookup.set(ids.name, r.id);
@@ -373,8 +377,12 @@ function App() {
       const ids = getRecordIdentifiers(newRec.data, activeSchema.fields);
 
       let targetId: string | undefined = undefined;
+      // Cross-check in order: CPF -> ID Contrato -> Nome
       if (ids.cpf) {
         targetId = cpfLookup.get(ids.cpf);
+      }
+      if (!targetId && ids.contractId) {
+        targetId = contractLookup.get(ids.contractId);
       }
       if (!targetId && ids.name) {
         targetId = nameLookup.get(ids.name);
@@ -412,6 +420,7 @@ function App() {
         // Update lookup indexes in case merged data populated new identifier
         const updatedIds = getRecordIdentifiers(mergedData, activeSchema.fields);
         if (updatedIds.cpf) cpfLookup.set(updatedIds.cpf, targetId);
+        if (updatedIds.contractId) contractLookup.set(updatedIds.contractId, targetId);
         if (updatedIds.name) nameLookup.set(updatedIds.name, targetId);
 
         updatedCount++;
@@ -433,6 +442,7 @@ function App() {
         recordsToSaveInBulk.push(recWithOrder);
 
         if (ids.cpf) cpfLookup.set(ids.cpf, newId);
+        if (ids.contractId) contractLookup.set(ids.contractId, newId);
         if (ids.name) nameLookup.set(ids.name, newId);
 
         addedCount++;
@@ -515,7 +525,7 @@ function App() {
 
   const handleDeduplicate = async () => {
     try {
-      showToast("Validando duplicidades de Nome e CPF nas guias...");
+      showToast("Validando duplicidades de Nome, ID Contrato e CPF nas guias...");
       const res = await fetch("/api/records/deduplicate", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
@@ -597,7 +607,7 @@ function App() {
                 <button
                   onClick={handleDeduplicate}
                   className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
-                  title="Verificar e remover registros antigos duplicados por Nome ou CPF"
+                  title="Verificar e remover registros antigos duplicados por Nome, ID Contrato ou CPF"
                 >
                   <Sparkles size={14} /> Limpar Duplicados
                 </button>
