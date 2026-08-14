@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield, Sparkles } from "lucide-react";
+import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
 import { ClientTable } from "./components/ClientTable";
@@ -8,7 +8,6 @@ import { LoginScreen } from "./components/LoginScreen";
 import { UserManagementModal } from "./components/UserManagementModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicRecord, ReportSchema, UserRole, defaultSchema } from "./types";
-import { getRecordIdentifiers } from "./utils";
 
 function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(() => {
@@ -342,24 +341,6 @@ function App() {
       recordsMap.set(r.id, r);
     });
 
-    // Build lookup maps for fast CPF / Contract / Name match across ALL kept records
-    const cpfLookup = new Map<string, string>(); // normalizedCpf -> recordId
-    const contractLookup = new Map<string, string>(); // normalizedContract -> recordId
-    const nameLookup = new Map<string, string>(); // normalizedName -> recordId
-
-    recordsMap.forEach((r) => {
-      const ids = getRecordIdentifiers(r.data, activeSchema.fields);
-      if (ids.cpf && !cpfLookup.has(ids.cpf)) {
-        cpfLookup.set(ids.cpf, r.id);
-      }
-      if (ids.contractId && !contractLookup.has(ids.contractId)) {
-        contractLookup.set(ids.contractId, r.id);
-      }
-      if (ids.name && !nameLookup.has(ids.name)) {
-        nameLookup.set(ids.name, r.id);
-      }
-    });
-
     // Calculate max order for active schema
     let maxOrder = 0;
     recordsMap.forEach((r) => {
@@ -369,105 +350,36 @@ function App() {
       }
     });
 
-    let updatedCount = 0;
     let addedCount = 0;
     const recordsToSaveInBulk: DynamicRecord[] = [];
 
-    // DEDUPLICACÃO NA IMPORTAÇÃO DESATIVADA TEMPORARIAMENTE
-    // Para reativar no futuro, defina deduplicateOnImport = true
-    const deduplicateOnImport = false;
-
-    newRecords.forEach((newRec) => {
-      const ids = getRecordIdentifiers(newRec.data, activeSchema.fields);
-
-      let targetId: string | undefined = undefined;
-      if (deduplicateOnImport) {
-        // Cross-check in order: CPF -> ID Contrato -> Nome
-        if (ids.cpf) {
-          targetId = cpfLookup.get(ids.cpf);
+    const nowBase = Date.now();
+    newRecords.forEach((newRec, idx) => {
+      maxOrder++;
+      const newId = newRec.id || `rec_${nowBase}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
+      const recWithOrder: DynamicRecord = {
+        ...newRec,
+        id: newId,
+        reportId: activeSchema.id,
+        data: {
+          ...newRec.data,
+          _order: String(maxOrder)
         }
-        if (!targetId && ids.contractId) {
-          targetId = contractLookup.get(ids.contractId);
-        }
-        if (!targetId && ids.name) {
-          targetId = nameLookup.get(ids.name);
-        }
-      }
+      };
 
-      if (targetId && recordsMap.has(targetId)) {
-        // MATCH FOUND: Update existing record!
-        const existingRec = recordsMap.get(targetId)!;
-        const mergedData = { ...existingRec.data };
-
-        // Merge incoming fields
-        Object.keys(newRec.data).forEach((key) => {
-          const val = newRec.data[key];
-          if (val !== undefined && val !== null && val.trim() !== "" && val.trim() !== "-") {
-            mergedData[key] = val;
-          } else if (mergedData[key] === undefined) {
-            mergedData[key] = val;
-          }
-        });
-
-        if (!mergedData._order) {
-          maxOrder++;
-          mergedData._order = String(maxOrder);
-        }
-
-        const updatedRecord: DynamicRecord = {
-          ...existingRec,
-          reportId: activeSchema.id, // Transfer/associate with active schema
-          data: mergedData
-        };
-
-        recordsMap.set(targetId, updatedRecord);
-        recordsToSaveInBulk.push(updatedRecord);
-
-        // Update lookup indexes in case merged data populated new identifier
-        const updatedIds = getRecordIdentifiers(mergedData, activeSchema.fields);
-        if (updatedIds.cpf) cpfLookup.set(updatedIds.cpf, targetId);
-        if (updatedIds.contractId) contractLookup.set(updatedIds.contractId, targetId);
-        if (updatedIds.name) nameLookup.set(updatedIds.name, targetId);
-
-        updatedCount++;
-      } else {
-        // NO MATCH: Add as new record
-        maxOrder++;
-        const newId = newRec.id || `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const recWithOrder: DynamicRecord = {
-          ...newRec,
-          id: newId,
-          reportId: activeSchema.id,
-          data: {
-            ...newRec.data,
-            _order: String(maxOrder)
-          }
-        };
-
-        recordsMap.set(newId, recWithOrder);
-        recordsToSaveInBulk.push(recWithOrder);
-
-        if (ids.cpf) cpfLookup.set(ids.cpf, newId);
-        if (ids.contractId) contractLookup.set(ids.contractId, newId);
-        if (ids.name) nameLookup.set(ids.name, newId);
-
-        addedCount++;
-      }
+      recordsMap.set(newId, recWithOrder);
+      recordsToSaveInBulk.push(recWithOrder);
+      addedCount++;
     });
 
     const updatedRecordsState = Array.from(recordsMap.values());
     setRecords(updatedRecordsState);
 
-    // Deduplicate unique records to send in bulk payload
-    const finalRecordsToSave = Array.from(
-      new Map(recordsToSaveInBulk.map(r => [r.id, r])).values()
-    );
+    const finalRecordsToSave = recordsToSaveInBulk;
 
-    // Give visual feedback for validation step
-    await new Promise(r => setTimeout(r, 300));
     setImportProgress(prev => ({ ...prev, step: 'uploading' }));
 
-    const CHUNK_SIZE = 500;
+    const CHUNK_SIZE = 2000;
     const totalChunks = Math.ceil(finalRecordsToSave.length / CHUNK_SIZE) || 1;
     let savedCount = 0;
 
@@ -515,10 +427,7 @@ function App() {
         current: newRecords.length
       }));
       
-      const msg = updatedCount > 0 
-        ? `${addedCount} novos registros e ${updatedCount} atualizações (sem duplicidades)!` 
-        : `${addedCount} novos registros importados com sucesso!`;
-      showToast(msg);
+      showToast(`${addedCount} novos registros importados com sucesso!`);
     } catch (err: any) {
       console.error(err);
       setImportProgress(prev => ({
@@ -526,34 +435,6 @@ function App() {
         step: 'error',
         errorMessage: err?.message || "Erro ao salvar no banco."
       }));
-    }
-  };
-
-  const handleDeduplicate = async () => {
-    try {
-      showToast("Validando duplicidades de Nome, ID Contrato e CPF nas guias...");
-      const res = await fetch("/api/records/deduplicate", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        const recordsRes = await fetch("/api/records");
-        if (recordsRes.ok) {
-          const cleanRecs = await recordsRes.json();
-          setRecords(cleanRecs);
-          try {
-            localStorage.setItem("crm_records_backup", JSON.stringify(cleanRecs));
-          } catch (e) {}
-        }
-        if (data.deletedCount > 0) {
-          showToast(`Removidos ${data.deletedCount} registros antigos duplicados! Mantida apenas a última importação.`);
-        } else {
-          showToast("Nenhum registro duplicado foi encontrado nas guias.");
-        }
-      } else {
-        showToast("Erro ao processar remoção de duplicados.");
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("Erro de conexão ao comunicar com o servidor.");
     }
   };
 
@@ -609,13 +490,6 @@ function App() {
                   className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
                 >
                   <LayoutGrid size={14} /> Guia Atual
-                </button>
-                <button
-                  onClick={handleDeduplicate}
-                  className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
-                  title="Verificar e remover registros antigos duplicados por Nome, ID Contrato ou CPF"
-                >
-                  <Sparkles size={14} /> Limpar Duplicados
                 </button>
                 <button
                   onClick={() => setIsImportModalOpen(true)}

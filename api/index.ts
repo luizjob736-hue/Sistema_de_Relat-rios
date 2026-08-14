@@ -419,195 +419,6 @@ app.post("/api/records", async (req, res) => {
   }
 });
 
-// Function to deduplicate records across all schemas/tabs keeping only the latest import
-async function deduplicateRecordsInDb() {
-  try {
-    let schemas;
-    let records;
-    let isFallback = false;
-
-    try {
-      schemas = await sql`SELECT * FROM report_schemas`;
-      records = await sql`SELECT id, report_id, data FROM dynamic_records`;
-    } catch (dbErr) {
-      // Secondary deduplication executed
-      const cache = loadFallbackData();
-      schemas = cache.schemas;
-      records = cache.records.map(r => ({ id: r.id, report_id: r.reportId, data: r.data }));
-      isFallback = true;
-    }
-
-    if (!records || records.length === 0) return { deletedCount: 0, keptCount: 0 };
-
-    const schemaMap = new Map();
-    schemas.forEach((s: any) => schemaMap.set(s.id, s));
-
-    const cleanCpf = (val: any) => {
-      if (!val || val === '-' || val === '—') return '';
-      return String(val).replace(/\D/g, '');
-    };
-
-    const cleanName = (val: any) => {
-      if (!val || val === '-' || val === '—') return '';
-      return String(val).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-    };
-
-    const cleanContract = (val: any) => {
-      if (!val || val === '-' || val === '—') return '';
-      const s = String(val).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-      return (s && s !== '0' && s !== 'null' && s !== 'undefined') ? s : '';
-    };
-
-    function getRecordKeys(r: any) {
-      const s = schemaMap.get(r.report_id) || schemaMap.get('default');
-      const fields = s ? (s.fields || []) : [];
-      let cpf = '';
-      let name = '';
-      let contract = '';
-      let base = '';
-
-      if (r.data) {
-        for (const [k, v] of Object.entries(r.data)) {
-          if (!v || v === '-' || v === '—') continue;
-          const f = fields.find((field: any) => field.id === k);
-          const label = f ? (f.label || f.id) : k;
-          const normLabel = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-
-          if (!cpf && normLabel.includes('cpf')) {
-            cpf = cleanCpf(v);
-          } else if (!contract && normLabel.includes('contrato')) {
-            contract = cleanContract(v);
-          } else if (!name && (normLabel === 'nome' || normLabel === 'nomecliente' || (normLabel.includes('nome') && !normLabel.includes('base')))) {
-            name = cleanName(v);
-          } else if (!base && (normLabel === 'base' || normLabel === 'nomebase')) {
-            base = String(v);
-          }
-        }
-      }
-
-      // Direct fallbacks in r.data
-      if (!cpf && r.data) {
-        for (const [k, v] of Object.entries(r.data)) {
-          if (k.toLowerCase().includes('cpf')) { cpf = cleanCpf(v); break; }
-        }
-      }
-      if (!contract && r.data) {
-        for (const [k, v] of Object.entries(r.data)) {
-          if (k.toLowerCase().includes('contrato')) { contract = cleanContract(v); break; }
-        }
-      }
-      if (!name && r.data) {
-        for (const [k, v] of Object.entries(r.data)) {
-          if (k.toLowerCase() === 'nome' || k.toLowerCase() === 'nomecliente' || (k.toLowerCase().includes('nome') && !k.toLowerCase().includes('base'))) {
-            name = cleanName(v); break;
-          }
-        }
-      }
-      if (!base && r.data) {
-        if (r.data.nomeBase) base = String(r.data.nomeBase);
-        else if (r.data.Base) base = String(r.data.Base);
-      }
-
-      const isContatoAtivo = base.toLowerCase().includes('contato ativo');
-
-      return { cpf, contract, name, isContatoAtivo };
-    }
-
-    const recordInfos = records.map((r: any, idx: number) => {
-      const { cpf, contract, name, isContatoAtivo } = getRecordKeys(r);
-      const o = r.data && r.data._order ? Number(r.data._order) : idx;
-      const orderVal = isNaN(o) ? idx : o;
-      return { idx, id: r.id, report_id: r.report_id, cpf, contract, name, isContatoAtivo, orderVal };
-    });
-
-    const cpfGroups = new Map<string, any[]>();
-    const contractGroups = new Map<string, any[]>();
-    const nameGroups = new Map<string, any[]>();
-
-    recordInfos.forEach((r: any) => {
-      if (r.cpf && r.cpf.length >= 6) {
-        if (!cpfGroups.has(r.cpf)) cpfGroups.set(r.cpf, []);
-        cpfGroups.get(r.cpf)!.push(r);
-      }
-      if (r.contract && r.contract.length >= 2) {
-        if (!contractGroups.has(r.contract)) contractGroups.set(r.contract, []);
-        contractGroups.get(r.contract)!.push(r);
-      }
-      if (r.name && r.name.length >= 3) {
-        if (!nameGroups.has(r.name)) nameGroups.set(r.name, []);
-        nameGroups.get(r.name)!.push(r);
-      }
-    });
-
-    const deleteIds = new Set<string>();
-    const recordScore = (r: any) => (r.isContatoAtivo ? 10000000 : 0) + r.orderVal;
-
-    // 1. Cross-check duplicates by CPF
-    cpfGroups.forEach((group) => {
-      if (group.length > 1) {
-        group.sort((a, b) => recordScore(b) - recordScore(a));
-        for (let i = 1; i < group.length; i++) {
-          deleteIds.add(group[i].id);
-        }
-      }
-    });
-
-    // 2. Cross-check duplicates by ID Contrato
-    contractGroups.forEach((group) => {
-      const remaining = group.filter(r => !deleteIds.has(r.id));
-      if (remaining.length > 1) {
-        remaining.sort((a, b) => recordScore(b) - recordScore(a));
-        for (let i = 1; i < remaining.length; i++) {
-          deleteIds.add(remaining[i].id);
-        }
-      }
-    });
-
-    // 3. Cross-check duplicates by Nome
-    nameGroups.forEach((group) => {
-      const remaining = group.filter(r => !deleteIds.has(r.id));
-      if (remaining.length > 1) {
-        remaining.sort((a, b) => recordScore(b) - recordScore(a));
-        for (let i = 1; i < remaining.length; i++) {
-          deleteIds.add(remaining[i].id);
-        }
-      }
-    });
-
-    if (deleteIds.size > 0) {
-      const deleteArray = Array.from(deleteIds);
-      if (!isFallback) {
-        const chunkSize = 500;
-        for (let i = 0; i < deleteArray.length; i += chunkSize) {
-          const chunk = deleteArray.slice(i, i + chunkSize);
-          await sql`DELETE FROM dynamic_records WHERE id = ANY(${chunk})`;
-        }
-        console.log(`[Deduplication] Deleted ${deleteArray.length} older duplicate records in DB.`);
-      }
-
-      // Sync and clean cache too
-      const cache = loadFallbackData();
-      cache.records = cache.records.filter(r => !deleteIds.has(r.id));
-      saveFallbackData(cache);
-    }
-
-    return { deletedCount: deleteIds.size, keptCount: records.length - deleteIds.size };
-  } catch (err) {
-    console.error("Deduplication error:", err);
-    return { error: String(err) };
-  }
-}
-
-app.post("/api/records/deduplicate", async (req, res) => {
-  try {
-    const result = await deduplicateRecordsInDb();
-    res.json(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to deduplicate records" });
-  }
-});
-
 app.post("/api/records/bulk", async (req, res) => {
   try {
     const { records, mode, reportId } = req.body;
@@ -624,23 +435,27 @@ app.post("/api/records/bulk", async (req, res) => {
       }
       
       if (records && Array.isArray(records) && records.length > 0) {
-        const chunkSize = 500;
+        const chunkSize = 2000;
         for (let i = 0; i < records.length; i += chunkSize) {
           const chunk = records.slice(i, i + chunkSize);
-          await sql.begin(async (transaction) => {
-            for (const rec of chunk) {
-              if (!rec.id) continue;
-              const recReportId = rec.reportId || targetReportId;
-              const dataJson = JSON.stringify(rec.data || {});
-              await transaction`
-                INSERT INTO dynamic_records (id, report_id, data)
-                VALUES (${rec.id}, ${recReportId}, ${dataJson}::jsonb)
-                ON CONFLICT (id) DO UPDATE SET
-                  data = EXCLUDED.data,
-                  report_id = EXCLUDED.report_id
-              `;
-            }
-          });
+          const rows = chunk.map((rec: any) => ({
+            id: rec.id,
+            report_id: rec.reportId || targetReportId,
+            data: rec.data || {}
+          }));
+
+          const jsonPayload = JSON.stringify(rows);
+          await sql`
+            INSERT INTO dynamic_records (id, report_id, data)
+            SELECT
+              (x->>'id')::text,
+              (x->>'report_id')::text,
+              (x->'data')::jsonb
+            FROM jsonb_array_elements(${jsonPayload}::jsonb) AS x
+            ON CONFLICT (id) DO UPDATE SET
+              data = EXCLUDED.data,
+              report_id = EXCLUDED.report_id
+          `;
         }
       }
       dbSuccess = true;
@@ -653,7 +468,7 @@ app.post("/api/records/bulk", async (req, res) => {
       return res.status(500).json({ error: "Failed to save records to database" });
     }
 
-    // Sync Cache
+    // Sync Cache with O(1) map index
     const cache = loadFallbackData();
     if (mode === "overwrite") {
       if (targetReportId === 'default' || targetReportId === '1') {
@@ -664,14 +479,18 @@ app.post("/api/records/bulk", async (req, res) => {
     }
 
     if (records && records.length > 0) {
+      const existingMap = new Map<string, number>();
+      cache.records.forEach((r, idx) => existingMap.set(r.id, idx));
+
       records.forEach((rec: any) => {
         const recReportId = rec.reportId || targetReportId;
         const recordToSave = { id: rec.id, reportId: recReportId, data: rec.data || {} };
-        const existingIndex = cache.records.findIndex(r => r.id === rec.id);
-        if (existingIndex >= 0) {
+        const existingIndex = existingMap.get(rec.id);
+        if (existingIndex !== undefined) {
           cache.records[existingIndex] = recordToSave;
         } else {
           cache.records.push(recordToSave);
+          existingMap.set(rec.id, cache.records.length - 1);
         }
       });
     }
