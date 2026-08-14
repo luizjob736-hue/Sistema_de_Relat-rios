@@ -373,19 +373,25 @@ function App() {
     let addedCount = 0;
     const recordsToSaveInBulk: DynamicRecord[] = [];
 
+    // DEDUPLICACÃO NA IMPORTAÇÃO DESATIVADA TEMPORARIAMENTE
+    // Para reativar no futuro, defina deduplicateOnImport = true
+    const deduplicateOnImport = false;
+
     newRecords.forEach((newRec) => {
       const ids = getRecordIdentifiers(newRec.data, activeSchema.fields);
 
       let targetId: string | undefined = undefined;
-      // Cross-check in order: CPF -> ID Contrato -> Nome
-      if (ids.cpf) {
-        targetId = cpfLookup.get(ids.cpf);
-      }
-      if (!targetId && ids.contractId) {
-        targetId = contractLookup.get(ids.contractId);
-      }
-      if (!targetId && ids.name) {
-        targetId = nameLookup.get(ids.name);
+      if (deduplicateOnImport) {
+        // Cross-check in order: CPF -> ID Contrato -> Nome
+        if (ids.cpf) {
+          targetId = cpfLookup.get(ids.cpf);
+        }
+        if (!targetId && ids.contractId) {
+          targetId = contractLookup.get(ids.contractId);
+        }
+        if (!targetId && ids.name) {
+          targetId = nameLookup.get(ids.name);
+        }
       }
 
       if (targetId && recordsMap.has(targetId)) {
