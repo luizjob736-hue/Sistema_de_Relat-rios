@@ -3,6 +3,7 @@ import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settin
 import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
 import { exportDynamicCSV, formatCurrentDateTime } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
+import { EditableTextCell } from "./EditableTextCell";
 
 interface ClientTableProps {
   schema: ReportSchema;
@@ -720,23 +721,15 @@ export function ClientTable({
                               })()}
                             </select>
                           ) : (
-                            <>
-                              <input
-                                key={`input_${field.id}_${item.id}`}
-                                type="text"
-                                list={field.options && field.options.length > 0 ? `datalist_${field.id}` : undefined}
-                                className="bg-transparent border-b border-transparent focus:border-[#141414] text-[#141414] outline-none font-bold w-full text-xs focus:bg-white transition-all px-1 py-0.5"
-                                value={cellVal === "-" ? "" : cellVal}
-                                onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
-                              />
-                              {field.options && field.options.length > 0 && (
-                                <datalist id={`datalist_${field.id}`}>
-                                  {field.options.filter(o => o !== "-").map((opt, oIdx) => (
-                                    <option key={`${opt}_${oIdx}`} value={opt} />
-                                  ))}
-                                </datalist>
-                              )}
-                            </>
+                            <EditableTextCell
+                              key={`input_${field.id}_${item.id}`}
+                              recordId={item.id}
+                              fieldId={field.id}
+                              fieldLabel={field.label}
+                              initialValue={cellVal}
+                              options={field.options}
+                              onSave={onUpdateRecord}
+                            />
                           )
                         )}
                       </div>

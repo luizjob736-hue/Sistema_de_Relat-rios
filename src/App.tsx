@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield, CheckCircle2, Loader2, CloudOff } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
 import { ClientTable } from "./components/ClientTable";
@@ -20,6 +20,12 @@ function App() {
   const [schemas, setSchemas] = useState<ReportSchema[]>([]);
   const [activeSchemaId, setActiveSchemaId] = useState<string>('');
   const [records, setRecords] = useState<DynamicRecord[]>([]);
+
+  // Sync state tracking
+  const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'pending'>('saved');
+  const [pendingCount, setPendingCount] = useState<number>(0);
+  const pendingUpdatesRef = useRef<Map<string, { data: Record<string, string>; reportId?: string }>>(new Map());
+  const isFlushingRef = useRef<boolean>(false);
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgressState>({
@@ -55,16 +61,96 @@ function App() {
     sessionStorage.removeItem("crm_user_role");
   };
 
+  // Flush pending updates to server
+  const flushPendingQueue = useCallback(async () => {
+    if (isFlushingRef.current || pendingUpdatesRef.current.size === 0) return;
+    isFlushingRef.current = true;
+    setSyncStatus('saving');
+
+    const entries = Array.from(pendingUpdatesRef.current.entries());
+    for (const [id, payload] of entries) {
+      try {
+        const res = await fetch("/api/records", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id,
+            reportId: payload.reportId || 'default',
+            data: payload.data
+          }),
+        });
+        if (res.ok) {
+          pendingUpdatesRef.current.delete(id);
+        } else {
+          throw new Error("Server responded with error");
+        }
+      } catch (err) {
+        console.warn(`[Sync Queue] Retry failed for record ${id}, will retry automatically.`, err);
+        setSyncStatus('pending');
+        isFlushingRef.current = false;
+        setPendingCount(pendingUpdatesRef.current.size);
+        return;
+      }
+    }
+
+    isFlushingRef.current = false;
+    const remaining = pendingUpdatesRef.current.size;
+    setPendingCount(remaining);
+    if (remaining === 0) {
+      setSyncStatus('saved');
+      try {
+        localStorage.removeItem("crm_offline_pending");
+      } catch (e) {}
+    } else {
+      setSyncStatus('pending');
+    }
+  }, []);
+
+  // Save changes to localStorage backup
   useEffect(() => {
     if (records && records.length > 0) {
       try {
-        const backupRecords = records.slice(0, 100);
+        const backupRecords = records.slice(0, 1000);
         localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
       } catch (e) {
         console.error("localStorage backup error", e);
       }
     }
   }, [records]);
+
+  // Warn before closing if unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pendingUpdatesRef.current.size > 0) {
+        e.preventDefault();
+        e.returnValue = "Existem alterações sendo salvas no momento. Tem certeza que deseja sair?";
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
+  // Auto-retry pending queue timer & online listener
+  useEffect(() => {
+    const retryInterval = setInterval(() => {
+      if (pendingUpdatesRef.current.size > 0) {
+        flushPendingQueue();
+      }
+    }, 3500);
+
+    const handleOnline = () => {
+      flushPendingQueue();
+    };
+
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      clearInterval(retryInterval);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [flushPendingQueue]);
 
   useEffect(() => {
     if (schemas && schemas.length > 0) {
@@ -134,9 +220,6 @@ function App() {
           }
         });
 
-        if (cleanSchemas.length === 0) {
-        }
-
         setSchemas(cleanSchemas);
         try {
           localStorage.setItem("crm_schemas_backup", JSON.stringify(cleanSchemas));
@@ -150,7 +233,7 @@ function App() {
           setActiveSchemaId(cleanSchemas[0]?.id || '');
         }
 
-        // 2. Set server records as authoritative and sync local backup
+        // 2. Set server records as authoritative, but PRESERVE any local pending in-flight updates
         const recordMap = new Map<string, DynamicRecord>();
         (r || []).forEach((rec) => {
           if (rec && rec.id) {
@@ -158,7 +241,26 @@ function App() {
             if (idRemap[recReportId]) {
               recReportId = idRemap[recReportId];
             }
-            recordMap.set(rec.id, { ...rec, reportId: recReportId });
+
+            // Merge pending in-flight edits so background fetch NEVER erases what user just typed
+            let mergedData = { ...rec.data };
+            if (pendingUpdatesRef.current.has(rec.id)) {
+              const pending = pendingUpdatesRef.current.get(rec.id)!;
+              mergedData = { ...mergedData, ...pending.data };
+            }
+
+            recordMap.set(rec.id, { ...rec, reportId: recReportId, data: mergedData });
+          }
+        });
+
+        // Also add any new pending records that might not yet be in server response
+        pendingUpdatesRef.current.forEach((pending, pendingId) => {
+          if (!recordMap.has(pendingId)) {
+            recordMap.set(pendingId, {
+              id: pendingId,
+              reportId: pending.reportId || 'default',
+              data: pending.data
+            });
           }
         });
 
@@ -166,7 +268,7 @@ function App() {
 
         setRecords(finalRecords);
         try {
-          const backupRecords = finalRecords.slice(0, 15000);
+          const backupRecords = finalRecords.slice(0, 1000);
           localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
         } catch (e) {}
       } catch (err) {
@@ -219,7 +321,6 @@ function App() {
     }
     try {
       const normName = schema.name.trim().toLowerCase();
-      // Check if schema exists by ID or by Name
       const existing = schemas.find(s => s.id === schema.id || s.name.trim().toLowerCase() === normName);
       const targetId = existing ? existing.id : schema.id;
       const finalSchema = { ...schema, id: targetId };
@@ -254,22 +355,53 @@ function App() {
   };
 
   const handleUpdateRecord = async (id: string, updatedData: Record<string, string>) => {
-    const record = records.find(r => r.id === id);
-    if (!record) return;
-    const newRecord = { ...record, data: { ...record.data, ...updatedData } };
-    
+    // 1. Optimistic instant local update
+    let targetReportId = 'default';
     setRecords((prev) =>
-      prev.map((r) => (r.id === id ? newRecord : r))
+      prev.map((r) => {
+        if (r.id === id) {
+          targetReportId = r.reportId || 'default';
+          return { ...r, data: { ...r.data, ...updatedData } };
+        }
+        return r;
+      })
     );
 
+    // 2. Register in pending queue
+    const existingPending = pendingUpdatesRef.current.get(id);
+    pendingUpdatesRef.current.set(id, {
+      reportId: targetReportId,
+      data: { ...(existingPending?.data || {}), ...updatedData }
+    });
+    setPendingCount(pendingUpdatesRef.current.size);
+    setSyncStatus('saving');
+
+    // 3. Immediately dispatch request with fallback to retry queue
     try {
-      await fetch("/api/records", {
+      const res = await fetch("/api/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newRecord),
+        body: JSON.stringify({
+          id,
+          reportId: targetReportId,
+          data: updatedData
+        }),
       });
+
+      if (res.ok) {
+        pendingUpdatesRef.current.delete(id);
+        const remaining = pendingUpdatesRef.current.size;
+        setPendingCount(remaining);
+        if (remaining === 0) {
+          setSyncStatus('saved');
+        }
+      } else {
+        throw new Error("Server responded with error status");
+      }
     } catch (err) {
-      showToast("Erro ao atualizar registro.");
+      console.warn(`[Auto-Save] Record ${id} queued for background retry:`, err);
+      setSyncStatus('pending');
+      setPendingCount(pendingUpdatesRef.current.size);
     }
   };
 
@@ -284,15 +416,30 @@ function App() {
       })
     );
 
+    setSyncStatus('saving');
     try {
-      await fetch("/api/records/bulk-update", {
+      const res = await fetch("/api/records/bulk-update", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids, updatedData }),
       });
-      showToast(`${ids.length} registros atualizados.`);
+      if (res.ok) {
+        setSyncStatus('saved');
+        showToast(`${ids.length} registros atualizados com sucesso.`);
+      } else {
+        throw new Error("Bulk update failed");
+      }
     } catch (err) {
-      showToast("Erro ao atualizar registros.");
+      setSyncStatus('pending');
+      showToast("Erro de conexão ao salvar em massa. Tentando novamente em segundo plano.");
+      // Register all in pending queue for background retry
+      ids.forEach(id => {
+        const existing = pendingUpdatesRef.current.get(id);
+        pendingUpdatesRef.current.set(id, {
+          data: { ...(existing?.data || {}), ...updatedData }
+        });
+      });
+      setPendingCount(pendingUpdatesRef.current.size);
     }
   };
 
@@ -466,6 +613,27 @@ function App() {
                 }`}>
                   {userRole === 'admin' ? 'Admin' : userRole === 'viewer' ? 'Visualização' : 'Operador'} : {currentUser}
                 </span>
+
+                {/* Cloud Sync Status Indicator */}
+                {syncStatus === 'saved' && (
+                  <span className="flex items-center gap-1 text-[9px] font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 border border-emerald-300 rounded shadow-xs" title="Todas as alterações estão salvas com segurança no banco de dados.">
+                    <CheckCircle2 size={11} className="text-emerald-600" /> Salvo
+                  </span>
+                )}
+                {syncStatus === 'saving' && (
+                  <span className="flex items-center gap-1 text-[9px] font-mono font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 border border-amber-300 rounded animate-pulse" title="Salvando alterações...">
+                    <Loader2 size={11} className="animate-spin text-amber-600" /> Salvando...
+                  </span>
+                )}
+                {syncStatus === 'pending' && (
+                  <span 
+                    onClick={flushPendingQueue}
+                    className="flex items-center gap-1 text-[9px] font-mono font-bold text-orange-800 bg-orange-50 px-1.5 py-0.5 border border-orange-300 rounded cursor-pointer hover:bg-orange-100" 
+                    title="Tentando sincronizar com a nuvem. Clique para tentar agora."
+                  >
+                    <CloudOff size={11} className="text-orange-600" /> {pendingCount} pendente(s) (salvando...)
+                  </span>
+                )}
               </div>
               <p className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-widest leading-none">
                 Gestão Dinâmica Multibases

@@ -384,6 +384,9 @@ app.get("/api/records", async (req, res) => {
 app.post("/api/records", async (req, res) => {
   try {
     const newRecord = req.body;
+    if (!newRecord || !newRecord.id) {
+      return res.status(400).json({ error: "Invalid record: ID is required" });
+    }
     const rId = newRecord.reportId || 'default';
 
     let dbSuccess = false;
@@ -393,21 +396,27 @@ app.post("/api/records", async (req, res) => {
         INSERT INTO dynamic_records (id, report_id, data)
         VALUES (${newRecord.id}, ${rId}, ${dataJson}::jsonb)
         ON CONFLICT (id) DO UPDATE SET
-          data = EXCLUDED.data,
+          data = dynamic_records.data || EXCLUDED.data,
           report_id = EXCLUDED.report_id
       `;
       dbSuccess = true;
     } catch (dbErr) {
-      // Secondary record write executed
+      console.warn("Direct DB write failed, updating fallback cache", dbErr);
     }
 
-    // Update Cache
+    // Update Fallback Cache with field merging
     const cache = loadFallbackData();
     const existingIndex = cache.records.findIndex(r => r.id === newRecord.id);
-    const recordToSave = { id: newRecord.id, reportId: rId, data: newRecord.data || {} };
+    let recordToSave;
     if (existingIndex >= 0) {
+      recordToSave = {
+        id: newRecord.id,
+        reportId: rId,
+        data: { ...cache.records[existingIndex].data, ...(newRecord.data || {}) }
+      };
       cache.records[existingIndex] = recordToSave;
     } else {
+      recordToSave = { id: newRecord.id, reportId: rId, data: newRecord.data || {} };
       cache.records.push(recordToSave);
     }
     saveFallbackData(cache);
@@ -523,8 +532,9 @@ app.put("/api/records/bulk-update", async (req, res) => {
 
       // Sync Cache
       const cache = loadFallbackData();
+      const idsSet = new Set(ids);
       cache.records = cache.records.map(r => {
-        if (ids.includes(r.id)) {
+        if (idsSet.has(r.id)) {
           return { ...r, data: { ...r.data, ...updatedData } };
         }
         return r;
