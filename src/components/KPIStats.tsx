@@ -1,5 +1,6 @@
 import { Users, CheckCircle2, HelpCircle, XCircle, Clock } from "lucide-react";
 import { DynamicRecord } from "../types";
+import { isRecordFinalized } from "../utils";
 
 interface KPIStatsProps {
   records: DynamicRecord[];
@@ -7,7 +8,7 @@ interface KPIStatsProps {
 }
 
 export default function KPIStats({ records, schemaId = 'default' }: KPIStatsProps) {
-  const filteredRecords = records.filter(r => r.reportId === schemaId);
+  const filteredRecords = records.filter(r => r.reportId === schemaId && !isRecordFinalized(r));
   const total = filteredRecords.length;
   const comSucesso = filteredRecords.filter((r) => r.data.status === "Com Sucesso").length;
   const semResposta = filteredRecords.filter((r) => r.data.status === "Sem Resposta").length;

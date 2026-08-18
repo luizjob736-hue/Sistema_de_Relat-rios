@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { formatCurrentDateTime } from "../utils";
 
 interface EditableTextCellProps {
+  key?: React.Key;
   recordId: string;
   fieldId: string;
   fieldLabel?: string;

@@ -67,7 +67,7 @@ function App() {
     isFlushingRef.current = true;
     setSyncStatus('saving');
 
-    const entries = Array.from(pendingUpdatesRef.current.entries());
+    const entries = Array.from(pendingUpdatesRef.current.entries()) as [string, { data: Record<string, string>; reportId?: string }][];
     for (const [id, payload] of entries) {
       try {
         const res = await fetch("/api/records", {

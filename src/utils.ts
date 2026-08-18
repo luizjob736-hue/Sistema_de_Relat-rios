@@ -304,6 +304,8 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
 
     // Keep _order tracking for fixed position ordering
     data._order = String(i);
+    // New entrants default to unfinalized ("false") so they are manually marked
+    data.finalizada = "false";
 
     // Skip line if all fields are empty or defaults (ignoring metadata keys like _order)
     const isAllEmpty = Object.keys(data)
@@ -326,12 +328,14 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
 
 // Exports Dynamic Records based on their Report Schema
 export const exportDynamicCSV = (records: DynamicRecord[], schema: ReportSchema): string => {
-  const headers = schema.fields.map(f => f.label).join(";");
+  const headers = ["Status Proposta", ...schema.fields.map(f => f.label)].join(";");
   const rows = records.map(r => {
-    return schema.fields.map(f => {
+    const isFin = isRecordFinalized(r, schema.fields) ? "Finalizada" : "Aberta";
+    const fieldVals = schema.fields.map(f => {
       const val = r.data[f.id] || "-";
       return val.includes(";") ? `"${val}"` : val;
-    }).join(";");
+    });
+    return [isFin, ...fieldVals].join(";");
   });
   return [headers, ...rows].join("\n");
 };
@@ -345,3 +349,53 @@ export const formatCurrentDateTime = () => {
   const minutes = String(now.getMinutes()).padStart(2, "0");
   return `${day}/${month}/${year} às ${hours}:${minutes}`;
 };
+
+export const isObservationFinalized = (obs: string | undefined | null): boolean => {
+  if (!obs) return false;
+  const s = String(obs).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (!s || s === "-" || s === "—") return false;
+  return (
+    s === "proposta cancelada/reprovada" ||
+    s === "proposta cancelada / reprovada" ||
+    s === "proposta cancelada" ||
+    s === "proposta reprovada" ||
+    s.includes("cancelada/reprovada") ||
+    s.includes("cancelada / reprovada") ||
+    (s.includes("proposta") && (s.includes("cancelada") || s.includes("reprovada")))
+  );
+};
+
+export const isRecordFinalized = (record: DynamicRecord | undefined | null, fields?: any[]): boolean => {
+  if (!record || !record.data) return false;
+
+  // 1. Explicit toggle has highest priority
+  const fin = record.data.finalizada || record.data._finalizada;
+  if (fin === "true" || fin === "sim" || fin === "1") {
+    return true;
+  }
+  if (fin === "false" || fin === "nao" || fin === "não" || fin === "0") {
+    return false;
+  }
+
+  // 2. Existing database fallback: check if Observação final matches "Proposta Cancelada/Reprovada"
+  let obsVal = record.data.observacaoFinal || record.data["Observação final"] || record.data["Observacao final"] || "";
+  
+  if (!obsVal && fields && Array.isArray(fields)) {
+    const obsField = fields.find(f => f && (f.id === 'observacaoFinal' || (f.label && f.label.toLowerCase().includes('observa'))));
+    if (obsField) {
+      obsVal = record.data[obsField.id] || record.data[obsField.label] || "";
+    }
+  }
+
+  if (!obsVal) {
+    for (const [k, v] of Object.entries(record.data)) {
+      if (k.toLowerCase().includes("observa")) {
+        obsVal = v;
+        break;
+      }
+    }
+  }
+
+  return isObservationFinalized(obsVal);
+};
+

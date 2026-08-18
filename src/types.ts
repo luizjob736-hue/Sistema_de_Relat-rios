@@ -61,7 +61,8 @@ export function ensureFixedColumns(fields: FieldDef[], statusOptions: string[] =
     options: [
       "Cliente informa que desconto foi realizado",
       "Cliente informa que desconto não foi realizado",
-      "Sem contato com o cliente"
+      "Sem contato com o cliente",
+      "Proposta Cancelada/Reprovada"
     ],
     readOnly: false
   };

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw } from "lucide-react";
+import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle } from "lucide-react";
 import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
-import { exportDynamicCSV, formatCurrentDateTime } from "../utils";
+import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
 import { EditableTextCell } from "./EditableTextCell";
 
@@ -98,7 +98,7 @@ export function ClientTable({
     setColumnFilters({});
   };
 
-  const hasActiveFilters = searchTerm !== "" || Object.values(columnFilters).some(v => v && v.trim() !== "");
+  const hasActiveFilters = searchTerm !== "" || Object.values(columnFilters).some(v => typeof v === "string" && v.trim() !== "");
 
   const getCellValue = (recordData: Record<string, string>, field: FieldDef): string => {
     if (!recordData || !field) return "-";
@@ -128,11 +128,13 @@ export function ClientTable({
       return "bg-[#D1EED5] hover:bg-[#C2E8C7] transition-colors font-medium";
     }
 
+    const isFinal = isRecordFinalized(item, fields);
+
     const statusField = fields.find(f => f.id === 'status' || f.label.toLowerCase() === 'status');
     const statusVal = statusField ? getCellValue(item?.data || {}, statusField) : '-';
 
     if (!statusVal || statusVal === "-" || statusVal.trim() === "") {
-      return "hover:bg-white/60 transition-colors";
+      return isFinal ? "bg-[#F5F4F0] opacity-90 hover:bg-[#EDECE7] transition-colors" : "hover:bg-white/60 transition-colors";
     }
 
     const sNorm = statusVal.trim().toLowerCase();
@@ -147,7 +149,7 @@ export function ClientTable({
       sNorm === 'sem sucesso' ||
       sNorm.includes('sem sucesso')
     ) {
-      return "bg-[#FCE8E6] hover:bg-[#F9D5D2] transition-colors";
+      return isFinal ? "bg-[#FDECEC] opacity-90 hover:bg-[#FCD8D8] transition-colors" : "bg-[#FCE8E6] hover:bg-[#F9D5D2] transition-colors";
     }
 
     // 2. Sem Resposta / Pending -> Soft Pastel Yellow
@@ -156,7 +158,7 @@ export function ClientTable({
       sNorm === 'sem resposta' ||
       sNorm.includes('sem resposta')
     ) {
-      return "bg-[#FFF8E1] hover:bg-[#FFF0B3] transition-colors";
+      return isFinal ? "bg-[#FEF9E7] opacity-90 hover:bg-[#FDF2C7] transition-colors" : "bg-[#FFF8E1] hover:bg-[#FFF0B3] transition-colors";
     }
 
     // 3. Com Sucesso -> Soft Pastel Green
@@ -167,10 +169,10 @@ export function ClientTable({
       sNorm.includes('com sucesso') ||
       (sNorm.includes('sucesso') && !sNorm.includes('sem sucesso'))
     ) {
-      return "bg-[#E6F4EA] hover:bg-[#C8E6C9] transition-colors";
+      return isFinal ? "bg-[#ECF7EE] opacity-90 hover:bg-[#D8EEDC] transition-colors" : "bg-[#E6F4EA] hover:bg-[#C8E6C9] transition-colors";
     }
 
-    return "hover:bg-white/60 transition-colors";
+    return isFinal ? "bg-[#F5F4F0] opacity-90 hover:bg-[#EDECE7] transition-colors" : "hover:bg-white/60 transition-colors";
   };
 
   const getReportRecords = (allRecs: DynamicRecord[], schemaId: string) => {
@@ -188,19 +190,34 @@ export function ClientTable({
   const filteredAndSortedRecords = useMemo(() => {
     let result = getReportRecords(records, schema?.id || '');
 
-    // 1. Global search filter
-    if (searchTerm) {
-      const lowerSearch = searchTerm.toLowerCase();
-      result = result.filter(record => 
-        fields.some(f => {
-          const val = getCellValue(record?.data || {}, f);
-          return val && val !== '-' && val.toLowerCase().includes(lowerSearch);
-        }) || Object.values(record?.data || {}).some(val => val && typeof val === 'string' && val.toLowerCase().includes(lowerSearch))
-      );
+    // 1. Proposal filter (All, Active, Finalized)
+    const proposalFilterVal = columnFilters['_finalizada'];
+    if (proposalFilterVal === 'finalized') {
+      result = result.filter(record => isRecordFinalized(record, fields));
+    } else if (proposalFilterVal === 'active') {
+      result = result.filter(record => !isRecordFinalized(record, fields));
     }
 
-    // 2. Per-column filters
-    const activeColFilters = Object.entries(columnFilters).filter(([_, val]) => val && val.trim() !== "");
+    // 2. Global search filter
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase();
+      result = result.filter(record => {
+        const isFinal = isRecordFinalized(record, fields);
+        const proposalStatusText = isFinal ? "finalizada" : "aberta";
+        if (proposalStatusText.includes(lowerSearch)) return true;
+
+        return fields.some(f => {
+          const val = getCellValue(record?.data || {}, f);
+          return val && val !== '-' && val.toLowerCase().includes(lowerSearch);
+        }) || Object.values(record?.data || {}).some(val => val && typeof val === 'string' && val.toLowerCase().includes(lowerSearch));
+      });
+    }
+
+    // 3. Per-column filters (excluding _finalizada which is handled above)
+    const activeColFilters = Object.entries(columnFilters).filter(
+      ([k, val]) => k !== '_finalizada' && typeof val === 'string' && val.trim() !== ""
+    ) as [string, string][];
+
     if (activeColFilters.length > 0) {
       result = result.filter(record => {
         return activeColFilters.every(([fieldId, filterVal]) => {
@@ -208,13 +225,21 @@ export function ClientTable({
           if (!targetField) return true;
           const cellVal = getCellValue(record?.data || {}, targetField);
           if (!cellVal || cellVal === '-') return false;
-          return cellVal.toLowerCase().includes(filterVal.toLowerCase());
+          return typeof cellVal === 'string' && cellVal.toLowerCase().includes(filterVal.toLowerCase());
         });
       });
     }
 
-    // 3. Sorting
-    if (sortField) {
+    // 4. Sorting
+    if (sortField === '_finalizada') {
+      result.sort((a, b) => {
+        const valA = isRecordFinalized(a, fields) ? 1 : 0;
+        const valB = isRecordFinalized(b, fields) ? 1 : 0;
+        if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+        if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+        return 0;
+      });
+    } else if (sortField) {
       const sortFieldDef = fields.find(f => f && f.id === sortField);
       result.sort((a, b) => {
         const valA = sortFieldDef ? getCellValue(a?.data || {}, sortFieldDef).toLowerCase() : ((a?.data?.[sortField]) || "").toLowerCase();
@@ -236,16 +261,18 @@ export function ClientTable({
     return result;
   }, [records, searchTerm, columnFilters, sortField, sortOrder, schema?.id, fields]);
 
-  // Executive summary calculation based strictly on SubMotivo mapping
+  // Executive summary calculation based strictly on active (non-finalized) records
   const reportStats = useMemo(() => {
     const allReportRecords = getReportRecords(records, schema?.id || '');
+    const activeReportRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
+    const finalizadasCount = allReportRecords.length - activeReportRecords.length;
     const statusField = fields.find(f => f.id === 'status' || f.label.toLowerCase() === 'status');
 
     let baseTrabalhada = 0;
     let contatoEfetivo = 0;
     let semContatoEfetivo = 0;
 
-    allReportRecords.forEach(r => {
+    activeReportRecords.forEach(r => {
       const statVal = statusField ? getCellValue(r?.data || {}, statusField) : '-';
       
       if (statVal && statVal !== '-' && statVal.trim() !== '') {
@@ -273,7 +300,7 @@ export function ClientTable({
       }
     });
 
-    const totalBase = allReportRecords.length;
+    const totalBase = activeReportRecords.length;
     const pendenciasDiscagem = Math.max(0, totalBase - baseTrabalhada);
 
     return {
@@ -281,12 +308,14 @@ export function ClientTable({
       baseTrabalhada,
       contatoEfetivo,
       semContatoEfetivo,
-      pendenciasDiscagem
+      pendenciasDiscagem,
+      finalizadasCount
     };
   }, [records, schema?.id, fields, statusConfigs]);
 
   const observacaoBreakdown = useMemo(() => {
     const allReportRecords = getReportRecords(records, schema?.id || '');
+    const activeReportRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
     const obsField = fields.find(f => f.id === 'observacaoFinal' || f.label.toLowerCase().includes('observa'));
     
     if (!obsField) return { counts: [], total: 0 };
@@ -294,7 +323,7 @@ export function ClientTable({
     const counts: Record<string, number> = {};
     let total = 0;
     
-    allReportRecords.forEach(r => {
+    activeReportRecords.forEach(r => {
       let val = getCellValue(r.data, obsField);
       if (!val || val === '-' || val.trim() === '') {
         return;
@@ -315,11 +344,11 @@ export function ClientTable({
 
   const copySummary = () => {
     const text = `Resumo Executivo (${schema.name})
-• Total da base: ${reportStats.totalBase.toLocaleString('pt-BR')} clientes
+• Total da base (ativas): ${reportStats.totalBase.toLocaleString('pt-BR')} clientes${reportStats.finalizadasCount > 0 ? ` (${reportStats.finalizadasCount} propostas finalizadas desconsideradas)` : ''}
 • Base trabalhada: ${reportStats.baseTrabalhada.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})
 • Contato efetivo: ${reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})
 • Sem contato efetivo: ${reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})
-• Pendências de discagem: ${reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})`;
+• Pendências de discagem: ${reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})${reportStats.finalizadasCount > 0 ? `\n• Propostas finalizadas: ${reportStats.finalizadasCount.toLocaleString('pt-BR')} clientes (fora do cálculo)` : ''}`;
 
     navigator.clipboard.writeText(text).then(() => {
       setCopyFeedback("Copiado!");
@@ -328,7 +357,7 @@ export function ClientTable({
   };
 
   const copyObsTable = () => {
-    let text = `Contagem (Observação Final - ${schema.name})\nObservação Final\tQtd.\n`;
+    let text = `Contagem (Observação Final - ${schema.name} - Ativas)\nObservação Final\tQtd.\n`;
     observacaoBreakdown.counts.forEach(c => text += `${c.label}\t${c.count}\n`);
     text += `Total Geral\t${observacaoBreakdown.total}`;
     navigator.clipboard.writeText(text).then(() => {
@@ -434,8 +463,15 @@ export function ClientTable({
             </div>
             <ul className="text-[11px] font-mono text-slate-700 space-y-0.5">
               <li className="flex justify-between border-b border-gray-200 pb-0.5">
-                <span className="font-bold text-[#141414]">Total da base:</span>
-                <span className="font-bold font-mono">{reportStats.totalBase.toLocaleString('pt-BR')} clientes</span>
+                <span className="font-bold text-[#141414]">Total da base (ativas):</span>
+                <span className="font-bold font-mono">
+                  {reportStats.totalBase.toLocaleString('pt-BR')} clientes
+                  {reportStats.finalizadasCount > 0 && (
+                    <span className="text-[9px] font-normal text-rose-800 ml-1">
+                      ({reportStats.finalizadasCount} finalizadas)
+                    </span>
+                  )}
+                </span>
               </li>
               <li className="flex justify-between border-b border-gray-200 pb-0.5">
                 <span className="font-bold text-[#141414]">Base trabalhada:</span>
@@ -449,10 +485,18 @@ export function ClientTable({
                 <span className="font-bold text-amber-900">Sem contato efetivo:</span>
                 <span><strong className="font-mono text-amber-900">{reportStats.semContatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></span>
               </li>
-              <li className="flex justify-between">
+              <li className="flex justify-between border-b border-gray-200 pb-0.5">
                 <span className="font-bold text-[#141414]">Pendências de discagem:</span>
                 <span><strong className="font-mono">{reportStats.pendenciasDiscagem.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></span>
               </li>
+              {reportStats.finalizadasCount > 0 && (
+                <li className="flex justify-between pt-0.5 text-rose-900 bg-rose-50/80 px-1.5 py-0.5 border border-rose-200">
+                  <span className="font-bold text-rose-900 flex items-center gap-1">
+                    <CheckCircle2 size={11} className="text-rose-700" /> Propostas finalizadas:
+                  </span>
+                  <span className="font-bold font-mono text-rose-900">{reportStats.finalizadasCount.toLocaleString('pt-BR')} (fora do resumo)</span>
+                </li>
+              )}
             </ul>
           </div>
 
@@ -570,6 +614,41 @@ export function ClientTable({
             <span className="text-[10px] uppercase font-black tracking-widest text-[#141414]">
               {`Ação em Massa (${selectedIds.length}):`}
             </span>
+            
+            {/* Quick Proposal Status Bulk Buttons */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  selectedIds.forEach(id => {
+                    onUpdateRecord(id, { finalizada: "true" });
+                  });
+                  setSelectedIds([]);
+                }}
+                className="flex items-center gap-1 bg-rose-100 text-rose-900 border-2 border-rose-900 px-2 py-0.5 text-[10px] font-bold uppercase hover:bg-rose-900 hover:text-white transition-colors"
+                title="Marcar todos os selecionados como Finalizados"
+              >
+                <CheckCircle2 size={11} />
+                <span>Finalizar ({selectedIds.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  selectedIds.forEach(id => {
+                    onUpdateRecord(id, { finalizada: "false" });
+                  });
+                  setSelectedIds([]);
+                }}
+                className="flex items-center gap-1 bg-white text-slate-800 border-2 border-[#141414] px-2 py-0.5 text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
+                title="Reabrir todos os selecionados (marcar como Abertos)"
+              >
+                <Circle size={10} />
+                <span>Reabrir ({selectedIds.length})</span>
+              </button>
+            </div>
+
+            <div className="h-4 w-[1px] bg-slate-300 mx-0.5" />
+
             {fields.filter(f => f && !f.readOnly).map(field => (
               <div key={`bulk_${field.id}`} className="flex items-center gap-1 bg-[#F2F1EB] border-2 border-[#141414] pl-1 pr-1 py-0.5">
                 {field.type === 'list' ? (
@@ -629,6 +708,16 @@ export function ClientTable({
                   className="rounded-none border-2 border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-3.5 w-3.5"
                 />
               </th>
+              {/* Proposal Status Column Header */}
+              <th
+                className="px-2.5 py-1.5 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors min-w-[125px] w-[130px]"
+                onClick={() => handleSort('_finalizada')}
+              >
+                <div className="flex items-center justify-between gap-1 font-extrabold tracking-wide">
+                  <span>Status Proposta</span>
+                  {sortField === '_finalizada' && <span>{sortOrder === "asc" ? "▲" : "▼"}</span>}
+                </div>
+              </th>
               {fields.map(field => (
                 <th key={field.id} className={`px-2.5 py-1.5 cursor-pointer hover:bg-[#C5C4C0] border-r border-[#141414]/40 transition-colors ${getFieldWidthClass(field)}`} onClick={() => handleSort(field.id)}>
                   <div className="flex items-center justify-between gap-1 font-extrabold tracking-wide">
@@ -643,6 +732,18 @@ export function ClientTable({
             <tr className="bg-[#E4E3E0] border-t border-[#141414]/40">
               <th className="px-1.5 py-0.5 text-center border-r border-[#141414]/40">
                 <Filter size={12} className="inline text-slate-600" />
+              </th>
+              {/* Proposal Status Filter Dropdown */}
+              <th className="px-1.5 py-0.5 border-r border-[#141414]/40 min-w-[125px] w-[130px]">
+                <select
+                  value={columnFilters['_finalizada'] || "all"}
+                  onChange={(e) => handleColumnFilterChange('_finalizada', e.target.value)}
+                  className="w-full bg-white border border-[#141414] text-[10px] font-mono px-1 py-0.5 outline-none font-bold focus:border-[#141414] cursor-pointer"
+                >
+                  <option value="all">Todas</option>
+                  <option value="active">Apenas Abertas</option>
+                  <option value="finalized">Apenas Finalizadas</option>
+                </select>
               </th>
               {fields.map(field => (
                 <th key={`filter_${field.id}`} className={`px-1.5 py-0.5 border-r border-[#141414]/40 ${getFieldWidthClass(field)}`}>
@@ -661,7 +762,7 @@ export function ClientTable({
           <tbody className="divide-y divide-[#141414]/30 text-xs text-[#141414] bg-[#E4E3E0]">
             {paginatedRecords.length === 0 && (
               <tr key="empty-row">
-                <td colSpan={fields.length + 1} className="px-6 py-8 text-center text-slate-600 bg-white/20">
+                <td colSpan={fields.length + 2} className="px-6 py-8 text-center text-slate-600 bg-white/20">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <span className="font-mono text-xs font-bold uppercase">Nenhum registro encontrado nesta base.</span>
                     {hasActiveFilters && (
@@ -690,6 +791,42 @@ export function ClientTable({
                   />
                 </td>
                 
+                {/* Proposal Status Cell */}
+                <td className="px-2 py-1 border-r border-[#141414]/20 text-center min-w-[125px] w-[130px]">
+                  {(() => {
+                    const isFinal = isRecordFinalized(item, fields);
+                    return (
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => onUpdateRecord(item.id, { finalizada: isFinal ? "false" : "true" })}
+                        className={`w-full flex items-center justify-center gap-1 px-1.5 py-0.5 border text-[10px] font-mono font-bold uppercase transition-all shadow-2xs ${
+                          isFinal
+                            ? "bg-rose-100 text-rose-900 border-rose-400 hover:bg-rose-200 cursor-pointer"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:text-black hover:border-slate-700 cursor-pointer"
+                        } ${!canEdit ? "opacity-70 cursor-default" : ""}`}
+                        title={
+                          isFinal
+                            ? "Proposta finalizada (desconsiderada do Resumo Executivo). Clique para reabrir."
+                            : "Proposta em aberto. Clique para marcar como Finalizada."
+                        }
+                      >
+                        {isFinal ? (
+                          <>
+                            <CheckCircle2 size={11} className="text-rose-700 shrink-0" />
+                            <span>Finalizada</span>
+                          </>
+                        ) : (
+                          <>
+                            <Circle size={10} className="text-slate-400 shrink-0" />
+                            <span>Aberta</span>
+                          </>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </td>
+
                 {fields.map(field => {
                   const cellVal = getCellValue(item?.data || {}, field);
                   const isHighlight = field.id === 'nome' || field.id === 'cpf' || (field.label && field.label.toLowerCase().includes('nome')) || (field.label && field.label.toLowerCase().includes('cpf'));
