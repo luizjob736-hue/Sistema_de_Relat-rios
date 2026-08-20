@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { formatCurrentDateTime } from "../utils";
 
 interface EditableTextCellProps {
@@ -23,11 +23,16 @@ export function EditableTextCell({
   onSave,
   className = ""
 }: EditableTextCellProps) {
-  const displayVal = initialValue === "-" ? "" : initialValue;
+  const displayVal = initialValue === "-" ? "" : (initialValue || "");
   const [localVal, setLocalVal] = useState<string>(displayVal);
   const [isFocused, setIsFocused] = useState<boolean>(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastCommittedRef = useRef<string>(displayVal);
+  const localValRef = useRef<string>(displayVal);
+  const isDirtyRef = useRef<boolean>(false);
+
+  // Always keep ref aligned with state
+  localValRef.current = localVal;
 
   const isAttemptOrDateField = 
     fieldId.toLowerCase().includes("tentativa") || 
@@ -35,16 +40,7 @@ export function EditableTextCell({
     fieldId.toLowerCase().includes("data") ||
     fieldLabel.toLowerCase().includes("data");
 
-  // Keep local value in sync if changed from outside while user is not typing
-  useEffect(() => {
-    if (!isFocused && initialValue !== undefined) {
-      const formatted = initialValue === "-" ? "" : initialValue;
-      setLocalVal(formatted);
-      lastCommittedRef.current = formatted;
-    }
-  }, [initialValue, isFocused]);
-
-  const commitValue = (valueToCommit: string) => {
+  const commitValue = useCallback((valueToCommit: string) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -54,17 +50,48 @@ export function EditableTextCell({
     if (isAttemptOrDateField && finalVal.trim().toLowerCase() === "agora") {
       finalVal = formatCurrentDateTime();
       setLocalVal(finalVal);
+      localValRef.current = finalVal;
     }
+
+    isDirtyRef.current = false;
 
     if (finalVal !== lastCommittedRef.current) {
       lastCommittedRef.current = finalVal;
       onSave(recordId, { [fieldId]: finalVal || "-" });
     }
-  };
+  }, [fieldId, isAttemptOrDateField, onSave, recordId]);
+
+  // Keep local value in sync if changed from outside ONLY when user is NOT typing / not dirty
+  useEffect(() => {
+    if (!isFocused && !isDirtyRef.current && initialValue !== undefined) {
+      const formatted = initialValue === "-" ? "" : initialValue;
+      setLocalVal(formatted);
+      localValRef.current = formatted;
+      lastCommittedRef.current = formatted;
+    }
+  }, [initialValue, isFocused]);
+
+  // Unmount safety flush: if user typed and switched tab, page, or filtered before debounce fired
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      if (isDirtyRef.current && localValRef.current !== lastCommittedRef.current) {
+        let finalVal = localValRef.current;
+        if (isAttemptOrDateField && finalVal.trim().toLowerCase() === "agora") {
+          finalVal = formatCurrentDateTime();
+        }
+        onSave(recordId, { [fieldId]: finalVal || "-" });
+      }
+    };
+  }, [fieldId, isAttemptOrDateField, onSave, recordId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVal = e.target.value;
     setLocalVal(newVal);
+    localValRef.current = newVal;
+    isDirtyRef.current = true;
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -72,12 +99,12 @@ export function EditableTextCell({
 
     debounceTimerRef.current = setTimeout(() => {
       commitValue(newVal);
-    }, 400);
+    }, 300);
   };
 
   const handleBlur = () => {
     setIsFocused(false);
-    commitValue(localVal);
+    commitValue(localValRef.current);
   };
 
   const handleFocus = () => {
@@ -85,8 +112,11 @@ export function EditableTextCell({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.currentTarget.blur();
+    if (e.key === "Enter" || e.key === "Tab") {
+      commitValue(localValRef.current);
+      if (e.key === "Enter") {
+        e.currentTarget.blur();
+      }
     }
   };
 
@@ -120,9 +150,10 @@ export function EditableTextCell({
         <button
           type="button"
           onMouseDown={(e) => {
-            e.preventDefault(); // Prevent blur
+            e.preventDefault(); // Prevent blur before applying
             const now = formatCurrentDateTime();
             setLocalVal(now);
+            localValRef.current = now;
             commitValue(now);
           }}
           className="absolute right-1 text-[9px] font-mono font-bold bg-[#141414] text-white px-1 py-0.2 rounded hover:bg-black uppercase cursor-pointer z-10"

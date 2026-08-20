@@ -106,20 +106,23 @@ export function ClientTable({
 
   const getCellValue = (recordData: Record<string, string>, field: FieldDef): string => {
     if (!recordData || !field) return "-";
-    if (field.id && recordData[field.id] !== undefined && recordData[field.id] !== "") {
-      return recordData[field.id];
+    // 1. Authoritative check on exact field.id
+    if (field.id && recordData[field.id] !== undefined) {
+      return recordData[field.id] === "" ? "-" : recordData[field.id];
     }
-    if (field.label && recordData[field.label] !== undefined && recordData[field.label] !== "") {
-      return recordData[field.label];
+    // 2. Secondary check on field.label
+    if (field.label && recordData[field.label] !== undefined) {
+      return recordData[field.label] === "" ? "-" : recordData[field.label];
     }
+    // 3. Normalized fallback for unmapped original CSV columns
     const labelText = field.label || field.id || "";
     if (!labelText) return "-";
     const normLabel = labelText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
     for (const [key, val] of Object.entries(recordData)) {
       if (key) {
         const normKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-        if (normKey === normLabel && val !== undefined && val !== "") {
-          return val;
+        if (normKey === normLabel && val !== undefined) {
+          return val === "" ? "-" : val;
         }
       }
     }
@@ -861,7 +864,14 @@ export function ClientTable({
                               key={`select_${field.id}_${item.id}`}
                               className="bg-transparent text-[#141414] outline-none font-bold cursor-pointer w-full text-xs py-0.5"
                               value={cellVal}
-                              onChange={(e) => onUpdateRecord(item.id, { [field.id]: e.target.value })}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const updatePayload: Record<string, string> = { [field.id]: val };
+                                if (field.label && field.label !== field.id) {
+                                  updatePayload[field.label] = val;
+                                }
+                                onUpdateRecord(item.id, updatePayload);
+                              }}
                             >
                               {(() => {
                                 const optionsArray = ["-", ...(field.options || [])];
@@ -883,7 +893,13 @@ export function ClientTable({
                               fieldLabel={field.label}
                               initialValue={cellVal}
                               options={field.options}
-                              onSave={onUpdateRecord}
+                              onSave={(recId, updated) => {
+                                const updatePayload = { ...updated };
+                                if (field.label && field.label !== field.id && updated[field.id] !== undefined) {
+                                  updatePayload[field.label] = updated[field.id];
+                                }
+                                onUpdateRecord(recId, updatePayload);
+                              }}
                             />
                           )
                         )}

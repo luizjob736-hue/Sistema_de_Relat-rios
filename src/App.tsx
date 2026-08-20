@@ -40,8 +40,10 @@ function App() {
   // Sync state tracking
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'pending'>('saved');
   const [pendingCount, setPendingCount] = useState<number>(0);
-  const pendingUpdatesRef = useRef<Map<string, { data: Record<string, string>; reportId?: string }>>(new Map());
+  const pendingUpdatesRef = useRef<Map<string, { data: Record<string, string>; reportId?: string; timestamp?: number }>>(new Map());
+  const lastLocalEditTimeRef = useRef<Map<string, number>>(new Map());
   const isFlushingRef = useRef<boolean>(false);
+  const lastFocusFetchTimeRef = useRef<number>(0);
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgressState>({
@@ -77,6 +79,18 @@ function App() {
     sessionStorage.removeItem("crm_user_role");
   };
 
+  // Persist and restore pending updates to/from localStorage for zero data loss
+  const persistPendingUpdates = useCallback(() => {
+    try {
+      if (pendingUpdatesRef.current.size > 0) {
+        const arrayPayload = Array.from(pendingUpdatesRef.current.entries());
+        localStorage.setItem("crm_offline_pending", JSON.stringify(arrayPayload));
+      } else {
+        localStorage.removeItem("crm_offline_pending");
+      }
+    } catch (e) {}
+  }, []);
+
   // Flush pending updates to server
   const flushPendingQueue = useCallback(async () => {
     if (isFlushingRef.current || pendingUpdatesRef.current.size === 0) return;
@@ -97,6 +111,7 @@ function App() {
         });
         if (res.ok) {
           pendingUpdatesRef.current.delete(id);
+          persistPendingUpdates();
         } else {
           throw new Error("Server responded with error");
         }
@@ -114,13 +129,29 @@ function App() {
     setPendingCount(remaining);
     if (remaining === 0) {
       setSyncStatus('saved');
-      try {
-        localStorage.removeItem("crm_offline_pending");
-      } catch (e) {}
+      persistPendingUpdates();
     } else {
       setSyncStatus('pending');
     }
-  }, []);
+  }, [persistPendingUpdates]);
+
+  // Restore any pending offline updates from storage on mount
+  useEffect(() => {
+    try {
+      const savedOffline = localStorage.getItem("crm_offline_pending");
+      if (savedOffline) {
+        const parsed: [string, { data: Record<string, string>; reportId?: string }][] = JSON.parse(savedOffline);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          parsed.forEach(([id, payload]) => {
+            pendingUpdatesRef.current.set(id, payload);
+          });
+          setPendingCount(pendingUpdatesRef.current.size);
+          setSyncStatus('pending');
+          flushPendingQueue();
+        }
+      }
+    } catch (e) {}
+  }, [flushPendingQueue]);
 
   // Save changes to localStorage backup
   useEffect(() => {
@@ -260,6 +291,7 @@ function App() {
         }
 
         // 2. Set server records as authoritative, but PRESERVE any local pending in-flight updates
+        const now = Date.now();
         const recordMap = new Map<string, DynamicRecord>();
         (r || []).forEach((rec) => {
           if (rec && rec.id) {
@@ -268,11 +300,22 @@ function App() {
               recReportId = idRemap[recReportId];
             }
 
-            // Merge pending in-flight edits so background fetch NEVER erases what user just typed
+            // Check if user recently edited this record locally
+            const lastEdit = lastLocalEditTimeRef.current.get(rec.id) || 0;
+            const isRecentlyEdited = (now - lastEdit) < 45000; // 45s edit shield
+
             let mergedData = { ...rec.data };
             if (pendingUpdatesRef.current.has(rec.id)) {
               const pending = pendingUpdatesRef.current.get(rec.id)!;
               mergedData = { ...mergedData, ...pending.data };
+            }
+
+            // If recently edited locally and we have local state, protect recent local fields
+            if (isRecentlyEdited) {
+              const existingLocal = records.find(lr => lr.id === rec.id);
+              if (existingLocal) {
+                mergedData = { ...mergedData, ...existingLocal.data };
+              }
             }
 
             recordMap.set(rec.id, { ...rec, reportId: recReportId, data: mergedData });
@@ -322,7 +365,13 @@ function App() {
     }, 3600000);
 
     const handleFocus = () => {
-      fetchData(true);
+      const now = Date.now();
+      // Throttle window.focus re-fetches to at most once every 30 seconds
+      // and skip if pending saves are active
+      if (now - lastFocusFetchTimeRef.current > 30000 && pendingUpdatesRef.current.size === 0) {
+        lastFocusFetchTimeRef.current = now;
+        fetchData(true);
+      }
     };
 
     window.addEventListener("focus", handleFocus);
@@ -381,26 +430,34 @@ function App() {
   };
 
   const handleUpdateRecord = async (id: string, updatedData: Record<string, string>) => {
+    // 0. Synchronously resolve canonical reportId and mark local edit timestamp
+    const existingRec = records.find((r) => r.id === id);
+    const targetReportId = (existingRec?.reportId && existingRec.reportId !== '1')
+      ? existingRec.reportId
+      : (activeSchemaId || 'default');
+
+    lastLocalEditTimeRef.current.set(id, Date.now());
+
     // 1. Optimistic instant local update
-    let targetReportId = 'default';
     setRecords((prev) =>
       prev.map((r) => {
         if (r.id === id) {
-          targetReportId = r.reportId || 'default';
-          return { ...r, data: { ...r.data, ...updatedData } };
+          return { ...r, reportId: targetReportId, data: { ...r.data, ...updatedData } };
         }
         return r;
       })
     );
 
-    // 2. Register in pending queue
+    // 2. Register in pending queue and persist to storage
     const existingPending = pendingUpdatesRef.current.get(id);
     pendingUpdatesRef.current.set(id, {
       reportId: targetReportId,
-      data: { ...(existingPending?.data || {}), ...updatedData }
+      data: { ...(existingPending?.data || {}), ...updatedData },
+      timestamp: Date.now()
     });
     setPendingCount(pendingUpdatesRef.current.size);
     setSyncStatus('saving');
+    persistPendingUpdates();
 
     // 3. Immediately dispatch request with fallback to retry queue
     try {
@@ -416,6 +473,7 @@ function App() {
 
       if (res.ok) {
         pendingUpdatesRef.current.delete(id);
+        persistPendingUpdates();
         const remaining = pendingUpdatesRef.current.size;
         setPendingCount(remaining);
         if (remaining === 0) {
@@ -428,11 +486,15 @@ function App() {
       console.warn(`[Auto-Save] Record ${id} queued for background retry:`, err);
       setSyncStatus('pending');
       setPendingCount(pendingUpdatesRef.current.size);
+      persistPendingUpdates();
     }
   };
 
   const handleUpdateRecordsBulk = async (ids: string[], updatedData: Record<string, string>) => {
     const idsSet = new Set(ids);
+    const now = Date.now();
+    ids.forEach(id => lastLocalEditTimeRef.current.set(id, now));
+
     setRecords((prev) =>
       prev.map((r) => {
         if (idsSet.has(r.id)) {
@@ -462,10 +524,12 @@ function App() {
       ids.forEach(id => {
         const existing = pendingUpdatesRef.current.get(id);
         pendingUpdatesRef.current.set(id, {
-          data: { ...(existing?.data || {}), ...updatedData }
+          data: { ...(existing?.data || {}), ...updatedData },
+          timestamp: Date.now()
         });
       });
       setPendingCount(pendingUpdatesRef.current.size);
+      persistPendingUpdates();
     }
   };
 

@@ -397,22 +397,33 @@ app.post("/api/records", async (req, res) => {
         VALUES (${newRecord.id}, ${rId}, ${dataJson}::jsonb)
         ON CONFLICT (id) DO UPDATE SET
           data = dynamic_records.data || EXCLUDED.data,
-          report_id = EXCLUDED.report_id
+          report_id = CASE
+            WHEN dynamic_records.report_id IS NOT NULL 
+                 AND dynamic_records.report_id != 'default' 
+                 AND dynamic_records.report_id != '1' 
+                 AND (EXCLUDED.report_id = 'default' OR EXCLUDED.report_id = '1')
+            THEN dynamic_records.report_id
+            ELSE EXCLUDED.report_id
+          END
       `;
       dbSuccess = true;
     } catch (dbErr) {
       console.warn("Direct DB write failed, updating fallback cache", dbErr);
     }
 
-    // Update Fallback Cache with field merging
+    // Update Fallback Cache with field merging and safe reportId preservation
     const cache = loadFallbackData();
     const existingIndex = cache.records.findIndex(r => r.id === newRecord.id);
     let recordToSave;
     if (existingIndex >= 0) {
+      const existing = cache.records[existingIndex];
+      const safeReportId = (existing.reportId && existing.reportId !== 'default' && existing.reportId !== '1' && (rId === 'default' || rId === '1'))
+        ? existing.reportId
+        : rId;
       recordToSave = {
         id: newRecord.id,
-        reportId: rId,
-        data: { ...cache.records[existingIndex].data, ...(newRecord.data || {}) }
+        reportId: safeReportId,
+        data: { ...existing.data, ...(newRecord.data || {}) }
       };
       cache.records[existingIndex] = recordToSave;
     } else {
