@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle } from "lucide-react";
+import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash } from "lucide-react";
 import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
 import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
+import { DeduplicationModal } from "./DeduplicationModal";
 import { EditableTextCell } from "./EditableTextCell";
 
 interface ClientTableProps {
@@ -13,6 +14,7 @@ interface ClientTableProps {
   onUpdateRecordsBulk: (ids: string[], updatedData: Record<string, string>) => void;
   onDeleteRecords?: (ids: string[]) => void;
   onUpdateSchema?: (updatedSchema: ReportSchema) => void;
+  onDeduplicateGuide?: (columnId: string, columnLabel: string, idsToDelete: string[], removedRecords: DynamicRecord[]) => void;
 }
 
 export function ClientTable({
@@ -22,7 +24,8 @@ export function ClientTable({
   onUpdateRecord,
   onUpdateRecordsBulk,
   onDeleteRecords,
-  onUpdateSchema
+  onUpdateSchema,
+  onDeduplicateGuide
 }: ClientTableProps) {
   const canEdit = userRole === 'admin' || userRole === 'editor';
 
@@ -34,6 +37,7 @@ export function ClientTable({
   const [currentPage, setCurrentPage] = useState(1);
   const [copyFeedback, setCopyFeedback] = useState("");
   const [isStatusConfigOpen, setIsStatusConfigOpen] = useState(false);
+  const [isDeduplicationOpen, setIsDeduplicationOpen] = useState(false);
   const [bulkEdits, setBulkEdits] = useState<Record<string, string>>({});
 
   const rowsPerPage = 50;
@@ -575,31 +579,45 @@ export function ClientTable({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {canEdit && onDeduplicateGuide && (
+              <button
+                type="button"
+                onClick={() => setIsDeduplicationOpen(true)}
+                className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-amber-300 transition-colors shadow-2xs cursor-pointer"
+                title="Remover registros duplicados com base em uma coluna selecionada"
+              >
+                <CopySlash size={12} className="text-amber-800" />
+                Remover Duplicatas
+              </button>
+            )}
             {canEdit && (
               <button
+                type="button"
                 onClick={() => setIsStatusConfigOpen(true)}
-                className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
               >
                 <Settings2 size={12} />
                 Gerenciar Status
               </button>
             )}
             <button
+              type="button"
               onClick={exportSelected}
-              className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 bg-white border-2 border-[#141414] text-[#141414] text-[11px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-colors cursor-pointer"
             >
               <Download size={12} />
               Exportar
             </button>
             {canEdit && selectedIds.length > 0 && onDeleteRecords && (
               <button
+                type="button"
                 onClick={() => {
                   if (confirm("Tem certeza que deseja excluir os registros selecionados?")) {
                     onDeleteRecords(selectedIds);
                     setSelectedIds([]);
                   }
                 }}
-                className="flex items-center gap-1 px-2.5 py-1 bg-red-100 border-2 border-red-900 text-red-900 text-[11px] font-bold uppercase hover:bg-red-900 hover:text-white transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 bg-red-100 border-2 border-red-900 text-red-900 text-[11px] font-bold uppercase hover:bg-red-900 hover:text-white transition-colors cursor-pointer"
               >
                 <Trash2 size={12} />
                 Excluir ({selectedIds.length})
@@ -917,6 +935,19 @@ export function ClientTable({
           onClose={() => setIsStatusConfigOpen(false)}
           statusConfigs={statusConfigs}
           onSave={handleSaveStatusConfigs}
+        />
+      )}
+
+      {/* Modal for Deduplication */}
+      {canEdit && onDeduplicateGuide && (
+        <DeduplicationModal
+          isOpen={isDeduplicationOpen}
+          onClose={() => setIsDeduplicationOpen(false)}
+          schema={schema}
+          records={records}
+          onConfirmDeduplicate={(colId, colLabel, idsToDelete, removedRecs) => {
+            onDeduplicateGuide(colId, colLabel, idsToDelete, removedRecs);
+          }}
         />
       )}
     </div>

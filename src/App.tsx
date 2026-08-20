@@ -6,8 +6,9 @@ import { ClientTable } from "./components/ClientTable";
 import { SchemaBuilderModal } from "./components/SchemaBuilderModal";
 import { LoginScreen } from "./components/LoginScreen";
 import { UserManagementModal } from "./components/UserManagementModal";
+import { UndoDeduplicationBanner } from "./components/UndoDeduplicationBanner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { DynamicRecord, ReportSchema, UserRole, defaultSchema } from "./types";
+import { DynamicRecord, ReportSchema, UserRole, defaultSchema, DeduplicationSession } from "./types";
 
 function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(() => {
@@ -20,6 +21,21 @@ function App() {
   const [schemas, setSchemas] = useState<ReportSchema[]>([]);
   const [activeSchemaId, setActiveSchemaId] = useState<string>('');
   const [records, setRecords] = useState<DynamicRecord[]>([]);
+
+  // 30-Minute Deduplication Undo Session
+  const [dedupSession, setDedupSession] = useState<DeduplicationSession | null>(() => {
+    try {
+      const saved = localStorage.getItem("crm_dedup_session");
+      if (saved) {
+        const parsed: DeduplicationSession = JSON.parse(saved);
+        if (parsed && parsed.expiresAt && Date.now() < parsed.expiresAt) {
+          return parsed;
+        }
+        localStorage.removeItem("crm_dedup_session");
+      }
+    } catch (e) {}
+    return null;
+  });
 
   // Sync state tracking
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'pending'>('saved');
@@ -167,6 +183,16 @@ function App() {
       localStorage.setItem("crm_active_tab", activeSchemaId);
     }
   }, [activeSchemaId]);
+
+  useEffect(() => {
+    if (dedupSession) {
+      try {
+        localStorage.setItem("crm_dedup_session", JSON.stringify(dedupSession));
+      } catch (e) {}
+    } else {
+      localStorage.removeItem("crm_dedup_session");
+    }
+  }, [dedupSession]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -457,6 +483,86 @@ function App() {
     } catch (err) {
       showToast("Erro ao excluir.");
     }
+  };
+
+  const handleDeduplicateGuide = async (
+    columnId: string,
+    columnLabel: string,
+    idsToDelete: string[],
+    removedRecords: DynamicRecord[]
+  ) => {
+    if (!activeSchema || idsToDelete.length === 0) return;
+
+    // 1. Optimistically remove from local state
+    const idsSet = new Set(idsToDelete);
+    setRecords((prev) => prev.filter((r) => !idsSet.has(r.id)));
+
+    // 2. Persist 30-minute undo session
+    const now = Date.now();
+    const session: DeduplicationSession = {
+      id: `dedup_${now}`,
+      schemaId: activeSchema.id,
+      schemaName: activeSchema.name,
+      columnId,
+      columnLabel,
+      removedRecords,
+      createdAt: now,
+      expiresAt: now + 30 * 60 * 1000 // 30 minutes
+    };
+    setDedupSession(session);
+
+    // 3. Dispatch bulk deletion to server
+    try {
+      const res = await fetch("/api/records/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: idsToDelete }),
+      });
+      if (!res.ok) throw new Error("Falha ao remover duplicatas no servidor");
+      showToast(`🧹 ${idsToDelete.length} duplicatas removidas da guia "${activeSchema.name}" (Base: ${columnLabel}). Desfazer disponível por 30 min.`);
+    } catch (err) {
+      console.error("Error deleting duplicates:", err);
+      showToast("Erro ao sincronizar remoção no servidor.");
+    }
+  };
+
+  const handleUndoDeduplication = async (session: DeduplicationSession) => {
+    if (!session || !session.removedRecords || session.removedRecords.length === 0) return;
+
+    // 1. Optimistically restore to local records
+    setRecords((prev) => {
+      const existingIds = new Set(prev.map(r => r.id));
+      const toAdd = session.removedRecords.filter(r => !existingIds.has(r.id));
+      return [...prev, ...toAdd];
+    });
+
+    // 2. Clear undo session
+    setDedupSession(null);
+    localStorage.removeItem("crm_dedup_session");
+
+    // 3. Restore in bulk on server
+    try {
+      const res = await fetch("/api/records/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          records: session.removedRecords,
+          mode: "append",
+          reportId: session.schemaId
+        }),
+      });
+      if (!res.ok) throw new Error("Falha ao restaurar registros no servidor");
+      showToast(`✓ Ação desfeita com sucesso! ${session.removedRecords.length} registros foram restaurados na guia "${session.schemaName}".`);
+    } catch (err) {
+      console.error("Error restoring duplicates:", err);
+      showToast("Erro ao restaurar registros no servidor.");
+    }
+  };
+
+  const handleDismissDeduplication = (sessionId: string) => {
+    setDedupSession(null);
+    localStorage.removeItem("crm_dedup_session");
+    showToast("Dados temporários de duplicatas foram descartados.");
   };
 
   const handleImport = async (newRecords: DynamicRecord[], mode: "append" | "overwrite") => {
@@ -780,6 +886,13 @@ function App() {
         </div>
       </header>
 
+      {/* Undo Deduplication Banner (30-minute protection) */}
+      <UndoDeduplicationBanner
+        session={dedupSession}
+        onUndo={handleUndoDeduplication}
+        onDismiss={handleDismissDeduplication}
+      />
+
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden p-6">
         <section className="h-full bg-white border-4 border-[#141414] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col relative z-0">
@@ -793,6 +906,7 @@ function App() {
                 onUpdateRecordsBulk={handleUpdateRecordsBulk}
                 onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
                 onUpdateSchema={handleSaveSchema}
+                onDeduplicateGuide={handleDeduplicateGuide}
               />
             </ErrorBoundary>
           ) : (

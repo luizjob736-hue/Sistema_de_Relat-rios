@@ -86,3 +86,14 @@ export const defaultSchema: ReportSchema = {
   statusConfigs: defaultStatusConfigs
 };
 
+export interface DeduplicationSession {
+  id: string;
+  schemaId: string;
+  schemaName: string;
+  columnId: string;
+  columnLabel: string;
+  removedRecords: DynamicRecord[];
+  createdAt: number;
+  expiresAt: number; // 30 minutes after createdAt
+}
+

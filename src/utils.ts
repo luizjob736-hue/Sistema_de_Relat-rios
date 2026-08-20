@@ -399,3 +399,42 @@ export const isRecordFinalized = (record: DynamicRecord | undefined | null, fiel
   return isObservationFinalized(obsVal);
 };
 
+export const normalizeForDeduplication = (
+  raw: string | undefined | null,
+  fieldId: string = '',
+  fieldLabel: string = ''
+): string => {
+  if (!raw) return "";
+  let val = String(raw).trim();
+  if (!val || val === "-" || val === "—" || val === "null" || val === "undefined") return "";
+
+  const idLower = fieldId.toLowerCase();
+  const labelLower = fieldLabel.toLowerCase();
+
+  // CPF / Documento: normalize digits
+  if (idLower.includes('cpf') || labelLower.includes('cpf') || idLower.includes('doc') || labelLower.includes('documento')) {
+    const digits = val.replace(/\D/g, "");
+    if (digits.length >= 8) {
+      return digits.padStart(11, "0");
+    }
+    return digits;
+  }
+
+  // Telefone / Celular: normalize digits
+  if (idLower.includes('tel') || labelLower.includes('tel') || idLower.includes('cel') || labelLower.includes('cel') || idLower.includes('fone') || labelLower.includes('fone')) {
+    const digits = val.replace(/\D/g, "");
+    if (digits.length >= 8) {
+      return digits;
+    }
+    return digits;
+  }
+
+  // Email: lowercase and trim
+  if (idLower.includes('email') || labelLower.includes('email') || idLower.includes('e-mail') || labelLower.includes('e-mail')) {
+    return val.toLowerCase().replace(/\s+/g, "");
+  }
+
+  // General text: normalize extra whitespace and lowercase
+  return val.toLowerCase().replace(/\s+/g, " ");
+};
+
