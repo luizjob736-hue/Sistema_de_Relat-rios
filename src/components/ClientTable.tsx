@@ -28,6 +28,7 @@ export function ClientTable({
   onDeduplicateGuide
 }: ClientTableProps) {
   const canEdit = userRole === 'admin' || userRole === 'editor';
+  const isAdmin = userRole === 'admin';
 
   const [searchTerm, setSearchTerm] = useState("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
@@ -582,7 +583,7 @@ export function ClientTable({
           </div>
 
           <div className="flex items-center gap-1.5">
-            {canEdit && onDeduplicateGuide && (
+            {isAdmin && onDeduplicateGuide && (
               <button
                 type="button"
                 onClick={() => setIsDeduplicationOpen(true)}
@@ -593,7 +594,7 @@ export function ClientTable({
                 Remover Duplicatas
               </button>
             )}
-            {canEdit && (
+            {isAdmin && (
               <button
                 type="button"
                 onClick={() => setIsStatusConfigOpen(true)}
@@ -611,7 +612,7 @@ export function ClientTable({
               <Download size={12} />
               Exportar
             </button>
-            {canEdit && selectedIds.length > 0 && onDeleteRecords && (
+            {isAdmin && selectedIds.length > 0 && onDeleteRecords && (
               <button
                 type="button"
                 onClick={() => {
@@ -945,7 +946,7 @@ export function ClientTable({
       </div>
 
       {/* Modal for Status & Submotivo Configuration */}
-      {canEdit && (
+      {isAdmin && (
         <StatusConfigModal
           isOpen={isStatusConfigOpen}
           onClose={() => setIsStatusConfigOpen(false)}
@@ -955,7 +956,7 @@ export function ClientTable({
       )}
 
       {/* Modal for Deduplication */}
-      {canEdit && onDeduplicateGuide && (
+      {isAdmin && onDeduplicateGuide && (
         <DeduplicationModal
           isOpen={isDeduplicationOpen}
           onClose={() => setIsDeduplicationOpen(false)}

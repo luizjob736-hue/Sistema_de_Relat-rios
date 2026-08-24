@@ -951,11 +951,13 @@ function App() {
       </header>
 
       {/* Undo Deduplication Banner (30-minute protection) */}
-      <UndoDeduplicationBanner
-        session={dedupSession}
-        onUndo={handleUndoDeduplication}
-        onDismiss={handleDismissDeduplication}
-      />
+      {userRole === 'admin' && (
+        <UndoDeduplicationBanner
+          session={dedupSession}
+          onUndo={handleUndoDeduplication}
+          onDismiss={handleDismissDeduplication}
+        />
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden p-6">
@@ -969,8 +971,8 @@ function App() {
                 onUpdateRecord={handleUpdateRecord}
                 onUpdateRecordsBulk={handleUpdateRecordsBulk}
                 onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
-                onUpdateSchema={handleSaveSchema}
-                onDeduplicateGuide={handleDeduplicateGuide}
+                onUpdateSchema={userRole === 'admin' ? handleSaveSchema : undefined}
+                onDeduplicateGuide={userRole === 'admin' ? handleDeduplicateGuide : undefined}
               />
             </ErrorBoundary>
           ) : (
