@@ -3,12 +3,36 @@ import { DynamicRecord, ReportSchema, defaultSchema } from "./types";
 
 export const generateId = () => Math.random().toString(36).substring(2, 9);
 
+export const fixMojibake = (str: string | undefined | null): string => {
+  if (!str) return "";
+  let text = String(str);
+
+  // Common Portuguese/Latin mojibake replacements (UTF-8 bytes misread as Windows-1252 / ISO-8859-1)
+  const mojibakeMap: [RegExp, string][] = [
+    [/Ã¡/g, "á"], [/Ã/g, "Á"], [/Ã /g, "à"], [/Ã€/g, "À"],
+    [/Ã¢/g, "â"], [/Ã‚/g, "Â"], [/Ã£/g, "ã"], [/Ãƒ/g, "Ã"],
+    [/Ã©/g, "é"], [/Ã‰/g, "É"], [/Ãª/g, "ê"], [/ÃŠ/g, "Ê"],
+    [/Ã­/g, "í"], [/Ã/g, "Í"], [/Ã¬/g, "ì"], [/ÃŒ/g, "Ì"],
+    [/Ã³/g, "ó"], [/Ã“/g, "Ó"], [/Ã´/g, "ô"], [/Ã”/g, "Ô"],
+    [/Ãµ/g, "õ"], [/Ã•/g, "Õ"], [/Ãº/g, "ú"], [/Ãš/g, "Ú"],
+    [/Ã¼/g, "ü"], [/Ãœ/g, "Ü"], [/Ã§/g, "ç"], [/Ã‡/g, "Ç"],
+    [/Âº/g, "º"], [/Âª/g, "ª"], [/Â°/g, "°"],
+    [/â€“/g, "–"], [/â€”/g, "—"], [/â€™/g, "’"], [/â€œ/g, "“"], [/â€/g, "”"],
+  ];
+
+  for (const [pattern, replacement] of mojibakeMap) {
+    text = text.replace(pattern, replacement);
+  }
+
+  return text;
+};
+
 export const cleanColumn = (col: string): string => {
   let s = col.trim();
   if (s.length >= 2 && s.charCodeAt(0) === 34 && s.charCodeAt(s.length - 1) === 34) {
     s = s.slice(1, -1).trim();
   }
-  return s;
+  return fixMojibake(s);
 };
 
 // Fallback bootstrap for backwards compatibility with rawCsvData
@@ -168,8 +192,9 @@ export const getRecordIdentifiers = (recData: Record<string, string>, fields?: a
 };
 
 // Parses CSV into Dynamic Records matching the active Report Schema
-export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicRecord[] => {
-  if (!csvText || !csvText.trim()) return [];
+export const parseDynamicCSV = (rawCsvText: string, schema: ReportSchema): DynamicRecord[] => {
+  if (!rawCsvText || !rawCsvText.trim()) return [];
+  const csvText = fixMojibake(rawCsvText.replace(/^\uFEFF/, ""));
   const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
 
   if (lines.length === 0) return [];
@@ -326,18 +351,30 @@ export const parseDynamicCSV = (csvText: string, schema: ReportSchema): DynamicR
   return records;
 };
 
-// Exports Dynamic Records based on their Report Schema
+// Exports Dynamic Records based on their Report Schema with UTF-8 BOM and correct encoding
 export const exportDynamicCSV = (records: DynamicRecord[], schema: ReportSchema): string => {
-  const headers = ["Status Proposta", ...schema.fields.map(f => f.label)].join(";");
+  const headers = ["Status Proposta", ...schema.fields.map(f => fixMojibake(f.label || f.id))].map(h => {
+    return (h.includes(";") || h.includes('"') || h.includes("\n") || h.includes("\r"))
+      ? `"${h.replace(/"/g, '""')}"`
+      : h;
+  }).join(";");
+
   const rows = records.map(r => {
     const isFin = isRecordFinalized(r, schema.fields) ? "Finalizada" : "Aberta";
     const fieldVals = schema.fields.map(f => {
-      const val = r.data[f.id] || "-";
-      return val.includes(";") ? `"${val}"` : val;
+      let rawVal = r.data ? (r.data[f.id] ?? r.data[f.label] ?? "-") : "-";
+      if (rawVal === undefined || rawVal === null || rawVal === "") rawVal = "-";
+      let val = fixMojibake(String(rawVal));
+      if (val.includes(";") || val.includes('"') || val.includes("\n") || val.includes("\r")) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
     });
     return [isFin, ...fieldVals].join(";");
   });
-  return [headers, ...rows].join("\n");
+
+  // \uFEFF UTF-8 Byte Order Mark forces Microsoft Excel, LibreOffice and Google Sheets to decode accents cleanly
+  return "\uFEFF" + [headers, ...rows].join("\r\n");
 };
 
 export const formatCurrentDateTime = () => {

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash } from "lucide-react";
 import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
-import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized } from "../utils";
+import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized, fixMojibake } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
 import { DeduplicationModal } from "./DeduplicationModal";
 import { EditableTextCell } from "./EditableTextCell";
@@ -109,11 +109,11 @@ export function ClientTable({
     if (!recordData || !field) return "-";
     // 1. Authoritative check on exact field.id
     if (field.id && recordData[field.id] !== undefined) {
-      return recordData[field.id] === "" ? "-" : recordData[field.id];
+      return recordData[field.id] === "" ? "-" : fixMojibake(recordData[field.id]);
     }
     // 2. Secondary check on field.label
     if (field.label && recordData[field.label] !== undefined) {
-      return recordData[field.label] === "" ? "-" : recordData[field.label];
+      return recordData[field.label] === "" ? "-" : fixMojibake(recordData[field.label]);
     }
     // 3. Normalized fallback for unmapped original CSV columns
     const labelText = field.label || field.id || "";
@@ -123,7 +123,7 @@ export function ClientTable({
       if (key) {
         const normKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
         if (normKey === normLabel && val !== undefined) {
-          return val === "" ? "-" : val;
+          return val === "" ? "-" : fixMojibake(val);
         }
       }
     }
