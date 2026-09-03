@@ -25,7 +25,27 @@ function loadFallbackData(): FallbackData {
     { id: 'valorLiberado', label: 'Valor Liberado', type: 'text', readOnly: true },
     { id: 'tentativa1', label: 'Tentativa 1', type: 'text', readOnly: false },
     { id: 'status', label: 'Status', type: 'list', options: ['-', 'Com Sucesso', 'Sem Resposta', 'Sem Sucesso'], readOnly: false },
-    { id: 'observacaoFinal', label: 'Observação final', type: 'list', options: ['-', 'Cliente informa que desconto foi realizado', 'Cliente informa que desconto não foi realizado', 'Sem contato com o cliente'], readOnly: false }
+    {
+      id: 'observacaoFinal',
+      label: 'Observação final',
+      type: 'list',
+      options: [
+        '-',
+        'Link de formalização enviado/reenviado',
+        'Contato sem sucesso',
+        'Proposta finalizada/paga',
+        'Proposta cancelada',
+        'Proposta reprovada',
+        'Proposta reapresentada',
+        'Documentação pendente',
+        'Documentação apresentada',
+        'Dados corrigidos',
+        'Aguardando',
+        'Sem interesse',
+        'Retorno à jornada'
+      ],
+      readOnly: false
+    }
   ];
 
   const initialUsers = [

@@ -34,7 +34,31 @@ export interface DynamicRecord {
   data: Record<string, string>;
 }
 
+export const STANDARD_OBSERVACAO_OPTIONS = [
+  "-",
+  "Link de formalização enviado/reenviado",
+  "Contato sem sucesso",
+  "Proposta finalizada/paga",
+  "Proposta cancelada",
+  "Proposta reprovada",
+  "Proposta reapresentada",
+  "Documentação pendente",
+  "Documentação apresentada",
+  "Dados corrigidos",
+  "Aguardando",
+  "Sem interesse",
+  "Retorno à jornada"
+];
+
 export function ensureFixedColumns(fields: FieldDef[], statusOptions: string[] = ["-", "Com Sucesso", "Sem Sucesso", "Sem Resposta"]): FieldDef[] {
+  // Find any existing observacao field options if previously defined
+  const existingObs = (fields || []).find(f => {
+    if (!f) return false;
+    const labelLower = (f.label || "").toLowerCase().trim();
+    const idLower = (f.id || "").toLowerCase().trim();
+    return labelLower.includes('observa') || idLower.includes('observa');
+  });
+
   // Filter out any existing 'status' or 'observacaoFinal' fields so we can append them at the end
   const userFields = (fields || []).filter(f => {
     if (!f) return false;
@@ -54,16 +78,15 @@ export function ensureFixedColumns(fields: FieldDef[], statusOptions: string[] =
     readOnly: false
   };
 
+  const obsOptions = (existingObs?.options && existingObs.options.length > 0)
+    ? (existingObs.options.includes("-") ? existingObs.options : ["-", ...existingObs.options])
+    : STANDARD_OBSERVACAO_OPTIONS;
+
   const fixedObservacao: FieldDef = {
     id: 'observacaoFinal',
     label: 'Observação final',
-    type: 'text',
-    options: [
-      "Cliente informa que desconto foi realizado",
-      "Cliente informa que desconto não foi realizado",
-      "Sem contato com o cliente",
-      "Proposta Cancelada/Reprovada"
-    ],
+    type: 'list',
+    options: Array.from(new Set(obsOptions)),
     readOnly: false
   };
 

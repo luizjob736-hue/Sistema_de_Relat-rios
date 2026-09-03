@@ -35,6 +35,124 @@ export const cleanColumn = (col: string): string => {
   return fixMojibake(s);
 };
 
+export const standardizeObservacaoFinal = (raw: string | undefined | null): string => {
+  if (!raw) return "-";
+  let s = String(raw).trim();
+  if (!s || s === "-" || s === "—" || s === "null" || s === "undefined" || s === "(vazio)") return "-";
+
+  const norm = s.toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // 1. Retorno à jornada
+  if (norm.includes("jornada") || norm.includes("voltar na jornada") || norm.includes("retornar a jornada")) {
+    return "Retorno à jornada";
+  }
+
+  // 2. Link de formalização enviado/reenviado
+  if (norm.includes("formalizacao") || (norm.includes("link") && (norm.includes("enviad") || norm.includes("reenviad") || norm.includes("expirad")))) {
+    return "Link de formalização enviado/reenviado";
+  }
+  if (norm.startsWith("ink de formalizacao")) {
+    return "Link de formalização enviado/reenviado";
+  }
+
+  // 3. Sem interesse
+  if (norm.includes("sem interesse") || norm.includes("nao tem interesse") || norm.includes("desiste") || norm.includes("recusa")) {
+    return "Sem interesse";
+  }
+
+  // 4. Proposta reapresentada
+  if (norm.includes("reapresentad")) {
+    return "Proposta reapresentada";
+  }
+
+  // 5. Documentação apresentada vs Documentação pendente
+  if (
+    (norm.includes("document") || norm.includes("doc")) &&
+    norm.includes("apresentad") &&
+    !norm.includes("nao") &&
+    !norm.includes("sem")
+  ) {
+    return "Documentação apresentada";
+  }
+  if (
+    norm.includes("documentacao nao apresentada") ||
+    norm.includes("documento nao apresentado") ||
+    norm.includes("encaminhar a documentacao") ||
+    norm.includes("encaminhar os documentos") ||
+    norm.includes("analise de documentacao") ||
+    (norm.includes("document") && (norm.includes("pendent") || norm.includes("encaminhar") || norm.includes("analise") || norm.includes("nao apresentad")))
+  ) {
+    return "Documentação pendente";
+  }
+
+  // 6. Dados corrigidos
+  if (norm.includes("dados") && (norm.includes("corrigid") || norm.includes("bancari"))) {
+    return "Dados corrigidos";
+  }
+
+  // 7. Aguardando
+  if (norm.includes("aguardand") || norm.includes("espera")) {
+    return "Aguardando";
+  }
+
+  // 8. Proposta reprovada
+  if (norm.includes("reprovad") || norm.includes("recusad")) {
+    return "Proposta reprovada";
+  }
+
+  // 9. Proposta cancelada
+  if (
+    norm.includes("cancelad") ||
+    norm.includes("cancelamento") ||
+    norm.includes("cancelada/reprovada") ||
+    norm.includes("cancelada / reprovada")
+  ) {
+    return "Proposta cancelada";
+  }
+
+  // 10. Proposta finalizada/paga
+  if (
+    norm === "finalizado" ||
+    norm === "finalizada" ||
+    norm.includes("finalizada/paga") ||
+    norm.includes("finalizada / paga") ||
+    norm.includes("proposta finalizada") ||
+    norm.includes("contrato finalizado") ||
+    norm.includes("proposta paga") ||
+    norm === "com sucesso"
+  ) {
+    return "Proposta finalizada/paga";
+  }
+
+  // 11. Contato sem sucesso
+  if (
+    norm.includes("sem contato") ||
+    norm.includes("contato sem sucesso") ||
+    norm.includes("sem sucesso") ||
+    norm.includes("sem resposta") ||
+    norm.includes("tentativas encerradas") ||
+    norm.includes("nao atende") ||
+    norm.includes("desligou") ||
+    norm.includes("correio de voz") ||
+    norm.includes("bloqueio") ||
+    norm.includes("bloqueado") ||
+    norm.includes("procon") ||
+    norm.includes("nao conseguiu ouvir") ||
+    norm.includes("nao foi possivel completar") ||
+    norm.includes("terceiro") ||
+    norm.includes("horario permitido")
+  ) {
+    return "Contato sem sucesso";
+  }
+
+  return s;
+};
+
 // Fallback bootstrap for backwards compatibility with rawCsvData
 export const getFallbackRecords = (): DynamicRecord[] => {
   const records: DynamicRecord[] = [];
@@ -299,6 +417,8 @@ export const parseDynamicCSV = (rawCsvText: string, schema: ReportSchema): Dynam
       // Normalize Attempt 1 Date/Time if applicable
       if (fId.includes("tentativa") || fLabel.includes("tentativa")) {
         cleaned = normalizeDateTime(cleaned);
+      } else if (fId.includes("observa") || fLabel.includes("observa")) {
+        cleaned = standardizeObservacaoFinal(cleaned);
       } else if (field.type === 'list' && field.options) {
         // Normalize if matches predefined option case-insensitively
         const matchedOpt = field.options.find(o => o && cleaned && o.toLowerCase() === cleaned.toLowerCase().trim());
