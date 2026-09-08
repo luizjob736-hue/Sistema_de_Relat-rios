@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield, CheckCircle2, Loader2, CloudOff } from "lucide-react";
+import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield, CheckCircle2, Loader2, CloudOff, RotateCw } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
 import { ClientTable } from "./components/ClientTable";
@@ -21,6 +21,10 @@ function App() {
   const [schemas, setSchemas] = useState<ReportSchema[]>([]);
   const [activeSchemaId, setActiveSchemaId] = useState<string>('');
   const [records, setRecords] = useState<DynamicRecord[]>([]);
+  const recordsRef = useRef<DynamicRecord[]>([]);
+  recordsRef.current = records;
+
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // 30-Minute Deduplication Undo Session
   const [dedupSession, setDedupSession] = useState<DeduplicationSession | null>(() => {
@@ -312,7 +316,7 @@ function App() {
 
             // If recently edited locally and we have local state, protect recent local fields
             if (isRecentlyEdited) {
-              const existingLocal = records.find(lr => lr.id === rec.id);
+              const existingLocal = recordsRef.current.find(lr => lr.id === rec.id);
               if (existingLocal) {
                 mergedData = { ...mergedData, ...existingLocal.data };
               }
@@ -354,21 +358,22 @@ function App() {
         if (!isBackground && isSubscribed) {
           setIsLoading(false);
         }
+        setIsManualRefreshing(false);
       }
     };
 
     fetchData(false);
 
-    // Auto-polling every 1 hour for background updates across browsers/tabs
+    // Auto-polling every 10 seconds for real-time synchronization across all tabs and users
     const pollInterval = setInterval(() => {
       fetchData(true);
-    }, 3600000);
+    }, 10000);
 
     const handleFocus = () => {
       const now = Date.now();
-      // Throttle window.focus re-fetches to at most once every 30 seconds
+      // Throttle window.focus re-fetches to at most once every 10 seconds
       // and skip if pending saves are active
-      if (now - lastFocusFetchTimeRef.current > 30000 && pendingUpdatesRef.current.size === 0) {
+      if (now - lastFocusFetchTimeRef.current > 10000 && pendingUpdatesRef.current.size === 0) {
         lastFocusFetchTimeRef.current = now;
         fetchData(true);
       }
@@ -382,6 +387,29 @@ function App() {
       window.removeEventListener("focus", handleFocus);
     };
   }, [currentUser]);
+
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      const [schemasRes, recordsRes] = await Promise.all([
+        fetch("/api/schemas"),
+        fetch("/api/records")
+      ]);
+      if (schemasRes.ok) {
+        const s = await schemasRes.json();
+        setSchemas(s);
+      }
+      if (recordsRes.ok) {
+        const r = await recordsRes.json();
+        setRecords(r);
+      }
+      showToast("Dados sincronizados com sucesso.");
+    } catch (err) {
+      showToast("Erro ao sincronizar dados.");
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  };
 
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} />;
@@ -812,6 +840,16 @@ function App() {
           </div>
           
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleManualRefresh}
+              disabled={isManualRefreshing}
+              title="Sincronizar dados com o servidor"
+              className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer disabled:opacity-50"
+            >
+              <RotateCw size={13} className={isManualRefreshing ? "animate-spin text-blue-600" : "text-[#141414]"} />
+              <span>{isManualRefreshing ? "Sincronizando..." : "Sincronizar"}</span>
+            </button>
+
             {userRole === 'admin' && (
               <>
                 <button

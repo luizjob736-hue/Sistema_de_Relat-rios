@@ -275,35 +275,82 @@ export function ClientTable({
     const activeReportRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
     const finalizadasCount = allReportRecords.length - activeReportRecords.length;
     const statusField = fields.find(f => f.id === 'status' || f.label.toLowerCase() === 'status');
+    const obsField = fields.find(f => f.id === 'observacaoFinal' || f.label.toLowerCase().includes('observa'));
 
     let baseTrabalhada = 0;
     let contatoEfetivo = 0;
     let semContatoEfetivo = 0;
 
     activeReportRecords.forEach(r => {
-      const statVal = statusField ? getCellValue(r?.data || {}, statusField) : '-';
+      const recData = r?.data || {};
       
-      if (statVal && statVal !== '-' && statVal.trim() !== '') {
-        const normStat = statVal.trim().toLowerCase();
-        
-        // Find matching status config item
-        const matchingConfig = statusConfigs.find(c => c.motivo.trim().toLowerCase() === normStat);
+      // 1. Resolve Status value
+      let statVal = statusField ? getCellValue(recData, statusField) : '-';
+      if (!statVal || statVal === '-') {
+        statVal = recData.status || recData.Status || '-';
+      }
+      const hasStatus = statVal && statVal !== '-' && statVal.trim() !== '';
 
-        if (matchingConfig) {
-          baseTrabalhada++;
-          if (matchingConfig.subMotivo === 'Sucesso') {
-            contatoEfetivo++;
-          } else if (matchingConfig.subMotivo === 'Sem Sucesso' || matchingConfig.subMotivo === 'Sem Resposta') {
-            semContatoEfetivo++;
+      // 2. Resolve Observação Final value
+      let obsVal = obsField ? getCellValue(recData, obsField) : '-';
+      if (!obsVal || obsVal === '-') {
+        obsVal = recData.observacaoFinal || recData['Observação final'] || recData['Observacao final'] || '-';
+      }
+      const hasObs = obsVal && obsVal !== '-' && obsVal.trim() !== '';
+
+      // 3. Check for any contact attempts / dates recorded
+      let hasAttempt = false;
+      for (const [k, v] of Object.entries(recData)) {
+        const kLow = k.toLowerCase();
+        if (
+          (kLow.includes('tentativa') || kLow.includes('wpp') || kLow.includes('tel') || kLow.includes('discagem') || kLow.includes('contato')) &&
+          v && v !== '-' && v !== '—' && String(v).trim() !== ''
+        ) {
+          hasAttempt = true;
+          break;
+        }
+      }
+
+      const isWorked = hasStatus || hasObs || hasAttempt;
+
+      if (isWorked) {
+        baseTrabalhada++;
+
+        if (hasStatus) {
+          const normStat = statVal.trim().toLowerCase();
+          const matchingConfig = statusConfigs.find(c => c.motivo.trim().toLowerCase() === normStat);
+
+          if (matchingConfig) {
+            if (matchingConfig.subMotivo === 'Sucesso') {
+              contatoEfetivo++;
+            } else {
+              semContatoEfetivo++;
+            }
+          } else {
+            // Heuristic fallback for unconfigured status text
+            if (normStat.includes('sucesso') && !normStat.includes('sem')) {
+              contatoEfetivo++;
+            } else {
+              semContatoEfetivo++;
+            }
           }
-        } else {
-          // Fallback heuristic for unconfigured strings if any
-          baseTrabalhada++;
-          if (normStat.includes('sucesso') && !normStat.includes('sem')) {
+        } else if (hasObs) {
+          // Status wasn't selected, but observation was recorded
+          const normObs = obsVal.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          if (
+            normObs.includes('formalizacao') || normObs.includes('link') ||
+            (normObs.includes('document') && normObs.includes('apresentad') && !normObs.includes('nao') && !normObs.includes('sem')) ||
+            normObs.includes('corrigid') || normObs.includes('jornada') ||
+            normObs.includes('reapresentad') || normObs.includes('sem interesse') ||
+            (normObs.includes('sucesso') && !normObs.includes('sem'))
+          ) {
             contatoEfetivo++;
           } else {
             semContatoEfetivo++;
           }
+        } else {
+          // Contact attempt recorded without status/observation yet
+          semContatoEfetivo++;
         }
       }
     });
@@ -871,6 +918,49 @@ export function ClientTable({
                                 if (field.label && field.label !== field.id) {
                                   updatePayload[field.label] = val;
                                 }
+
+                                // Smart sync when setting Observação Final
+                                const isObsField = field.id === 'observacaoFinal' || (field.label && field.label.toLowerCase().includes('observa'));
+                                if (isObsField) {
+                                  const currentStatus = item?.data?.status || item?.data?.Status || '-';
+                                  
+                                  if (val === 'Proposta finalizada/paga') {
+                                    updatePayload.finalizada = 'true';
+                                    if (currentStatus === '-' || !currentStatus) {
+                                      updatePayload.status = 'Com Sucesso';
+                                      updatePayload.Status = 'Com Sucesso';
+                                    }
+                                  } else if (val === 'Proposta cancelada' || val === 'Proposta reprovada') {
+                                    updatePayload.finalizada = 'true';
+                                    if (currentStatus === '-' || !currentStatus) {
+                                      updatePayload.status = 'Sem Sucesso';
+                                      updatePayload.Status = 'Sem Sucesso';
+                                    }
+                                  } else if (
+                                    val === 'Link de formalização enviado/reenviado' ||
+                                    val === 'Documentação apresentada' ||
+                                    val === 'Dados corrigidos' ||
+                                    val === 'Retorno à jornada' ||
+                                    val === 'Proposta reapresentada' ||
+                                    val === 'Sem interesse'
+                                  ) {
+                                    if (currentStatus === '-' || !currentStatus) {
+                                      updatePayload.status = 'Com Sucesso';
+                                      updatePayload.Status = 'Com Sucesso';
+                                    }
+                                  } else if (val === 'Contato sem sucesso') {
+                                    if (currentStatus === '-' || !currentStatus) {
+                                      updatePayload.status = 'Sem Sucesso';
+                                      updatePayload.Status = 'Sem Sucesso';
+                                    }
+                                  } else if (val === 'Documentação pendente' || val === 'Aguardando') {
+                                    if (currentStatus === '-' || !currentStatus) {
+                                      updatePayload.status = 'Sem Resposta';
+                                      updatePayload.Status = 'Sem Resposta';
+                                    }
+                                  }
+                                }
+
                                 onUpdateRecord(item.id, updatePayload);
                               }}
                             >
