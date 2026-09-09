@@ -113,10 +113,70 @@ export interface DeduplicationSession {
   id: string;
   schemaId: string;
   schemaName: string;
-  columnId: string;
-  columnLabel: string;
+  columnId?: string;
+  columnLabel?: string;
+  rule?: string;
   removedRecords: DynamicRecord[];
   createdAt: number;
   expiresAt: number; // 30 minutes after createdAt
+  active?: boolean;
+}
+
+export interface TratativaLog {
+  id: string;
+  createdAt: string;
+  dateStr: string;
+  username: string;
+  userRole?: string;
+  reportId: string;
+  reportName?: string;
+  recordId: string;
+  clientName?: string;
+  clientCpf?: string;
+  actionType: string;
+  details: {
+    field?: string;
+    fieldLabel?: string;
+    previousValue?: string;
+    newValue?: string;
+    changes?: Record<string, string>;
+    [key: string]: any;
+  };
+}
+
+export interface UserDailyStat {
+  username: string;
+  userRole: string;
+  totalTratativas: number;
+  comSucesso: number;
+  semSucesso: number;
+  semResposta: number;
+  outras: number;
+  lastActivityTime?: string;
+  reportsWorked: string[];
+}
+
+export interface DailyTratativasSummary {
+  date: string;
+  totalToday: number;
+  comSucessoToday: number;
+  semSucessoToday: number;
+  semRespostaToday: number;
+  activeUsersCount: number;
+  userStats: UserDailyStat[];
+  hourlyDistribution: { hour: string; count: number }[];
+  baseDistribution: { reportId: string; reportName: string; count: number }[];
+}
+
+export interface DatabaseBackupItem {
+  id: string;
+  createdAt: string;
+  dateStr: string;
+  backupType: 'AUTOMATIC_DAILY' | 'MANUAL';
+  totalSchemas: number;
+  totalRecords: number;
+  fileSizeBytes: number;
+  schemasSummary: { id: string; name: string; recordCount: number }[];
+  status: string;
 }
 

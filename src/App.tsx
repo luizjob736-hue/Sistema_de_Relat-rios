@@ -1,5 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Users, Upload, LayoutGrid, Plus, Copy, Trash2, LogOut, Shield, CheckCircle2, Loader2, CloudOff, RotateCw } from "lucide-react";
+import { 
+  Users, 
+  Upload, 
+  LayoutGrid, 
+  Plus, 
+  Copy, 
+  Trash2, 
+  LogOut, 
+  Shield, 
+  CheckCircle2, 
+  Loader2, 
+  CloudOff, 
+  RotateCw,
+  Activity,
+  Database,
+  CalendarCheck
+} from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
 import { ClientTable } from "./components/ClientTable";
@@ -8,6 +24,7 @@ import { LoginScreen } from "./components/LoginScreen";
 import { UserManagementModal } from "./components/UserManagementModal";
 import { UndoDeduplicationBanner } from "./components/UndoDeduplicationBanner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { AdminManagementPage } from "./components/AdminManagementPage";
 import { DynamicRecord, ReportSchema, UserRole, defaultSchema, DeduplicationSession } from "./types";
 
 function App() {
@@ -18,6 +35,15 @@ function App() {
     return sessionStorage.getItem("crm_user_role") as (UserRole | null);
   });
 
+  const [currentPage, setCurrentPage] = useState<'bases' | 'admin_management'>(() => {
+    try {
+      const saved = localStorage.getItem("crm_current_page");
+      return saved === 'admin_management' ? 'admin_management' : 'bases';
+    } catch (e) {
+      return 'bases';
+    }
+  });
+
   const [schemas, setSchemas] = useState<ReportSchema[]>([]);
   const [activeSchemaId, setActiveSchemaId] = useState<string>('');
   const [records, setRecords] = useState<DynamicRecord[]>([]);
@@ -25,6 +51,7 @@ function App() {
   recordsRef.current = records;
 
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [todayTratativasCount, setTodayTratativasCount] = useState<number>(0);
 
   // 30-Minute Deduplication Undo Session
   const [dedupSession, setDedupSession] = useState<DeduplicationSession | null>(() => {
@@ -83,6 +110,27 @@ function App() {
     sessionStorage.removeItem("crm_user_role");
   };
 
+  // Fetch count of today's tratativas for admin header button
+  const fetchTodayTratativasCount = useCallback(async () => {
+    if (userRole !== 'admin') return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const res = await fetch(`/api/tratativas/stats?date=${today}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTodayTratativasCount(data.totalToday || 0);
+      }
+    } catch (e) {}
+  }, [userRole]);
+
+  useEffect(() => {
+    if (userRole === 'admin') {
+      fetchTodayTratativasCount();
+      const interval = setInterval(fetchTodayTratativasCount, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [userRole, fetchTodayTratativasCount]);
+
   // Persist and restore pending updates to/from localStorage for zero data loss
   const persistPendingUpdates = useCallback(() => {
     try {
@@ -110,7 +158,9 @@ function App() {
           body: JSON.stringify({
             id,
             reportId: payload.reportId || 'default',
-            data: payload.data
+            data: payload.data,
+            username: currentUser || 'Operador',
+            userRole: userRole || 'editor'
           }),
         });
         if (res.ok) {
@@ -137,7 +187,7 @@ function App() {
     } else {
       setSyncStatus('pending');
     }
-  }, [persistPendingUpdates]);
+  }, [persistPendingUpdates, currentUser, userRole]);
 
   // Restore any pending offline updates from storage on mount
   useEffect(() => {
@@ -288,13 +338,14 @@ function App() {
 
         const savedActiveTab = localStorage.getItem("crm_active_tab");
         const canonicalActiveTab = savedActiveTab && idRemap[savedActiveTab] ? idRemap[savedActiveTab] : savedActiveTab;
+        
         if (canonicalActiveTab && cleanSchemas.some((sch: ReportSchema) => sch.id === canonicalActiveTab)) {
           setActiveSchemaId(canonicalActiveTab);
         } else if (!isBackground) {
           setActiveSchemaId(cleanSchemas[0]?.id || '');
         }
 
-        // 2. Set server records as authoritative, but PRESERVE any local pending in-flight updates
+        // Set server records as authoritative, but PRESERVE local pending in-flight updates
         const now = Date.now();
         const recordMap = new Map<string, DynamicRecord>();
         (r || []).forEach((rec) => {
@@ -304,9 +355,8 @@ function App() {
               recReportId = idRemap[recReportId];
             }
 
-            // Check if user recently edited this record locally
             const lastEdit = lastLocalEditTimeRef.current.get(rec.id) || 0;
-            const isRecentlyEdited = (now - lastEdit) < 45000; // 45s edit shield
+            const isRecentlyEdited = (now - lastEdit) < 45000;
 
             let mergedData = { ...rec.data };
             if (pendingUpdatesRef.current.has(rec.id)) {
@@ -314,7 +364,6 @@ function App() {
               mergedData = { ...mergedData, ...pending.data };
             }
 
-            // If recently edited locally and we have local state, protect recent local fields
             if (isRecentlyEdited) {
               const existingLocal = recordsRef.current.find(lr => lr.id === rec.id);
               if (existingLocal) {
@@ -326,7 +375,6 @@ function App() {
           }
         });
 
-        // Also add any new pending records that might not yet be in server response
         pendingUpdatesRef.current.forEach((pending, pendingId) => {
           if (!recordMap.has(pendingId)) {
             recordMap.set(pendingId, {
@@ -364,16 +412,15 @@ function App() {
 
     fetchData(false);
 
-    // Auto-polling every 10 seconds for real-time synchronization across all tabs and users
     const pollInterval = setInterval(() => {
-      fetchData(true);
-    }, 10000);
+      if (document.visibilityState === "visible") {
+        fetchData(true);
+      }
+    }, 30000);
 
     const handleFocus = () => {
       const now = Date.now();
-      // Throttle window.focus re-fetches to at most once every 10 seconds
-      // and skip if pending saves are active
-      if (now - lastFocusFetchTimeRef.current > 10000 && pendingUpdatesRef.current.size === 0) {
+      if (now - lastFocusFetchTimeRef.current > 15000 && pendingUpdatesRef.current.size === 0) {
         lastFocusFetchTimeRef.current = now;
         fetchData(true);
       }
@@ -403,6 +450,7 @@ function App() {
         const r = await recordsRes.json();
         setRecords(r);
       }
+      fetchTodayTratativasCount();
       showToast("Dados sincronizados com sucesso.");
     } catch (err) {
       showToast("Erro ao sincronizar dados.");
@@ -413,6 +461,28 @@ function App() {
 
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  if (currentPage === 'admin_management' && userRole === 'admin') {
+    return (
+      <AdminManagementPage
+        currentUser={currentUser}
+        userRole={userRole}
+        schemas={schemas}
+        todayTratativasCount={todayTratativasCount}
+        syncStatus={syncStatus}
+        pendingCount={pendingCount}
+        isManualRefreshing={isManualRefreshing}
+        onRefresh={handleManualRefresh}
+        onFlushPendingQueue={flushPendingQueue}
+        onBackToBases={() => {
+          setCurrentPage('bases');
+          localStorage.setItem("crm_current_page", "bases");
+        }}
+        onLogout={handleLogout}
+        showToast={showToast}
+      />
+    );
   }
 
   const activeSchema = schemas.find(s => s.id === activeSchemaId) || schemas[0];
@@ -457,8 +527,124 @@ function App() {
     }
   };
 
+  const handleDeduplicateGuide = async (schemaId: string, rule: 'cpf' | 'telefone' | 'email') => {
+    if (userRole !== 'admin') {
+      showToast("Apenas administradores podem deduplicar a base.");
+      return;
+    }
+
+    const currentGuideRecords = records.filter(r => r.reportId === schemaId);
+    if (currentGuideRecords.length === 0) {
+      showToast("A base atual está vazia. Nada a deduplicar.");
+      return;
+    }
+
+    const seenKeys = new Set<string>();
+    const toKeepIds = new Set<string>();
+    const duplicatesToRemove: DynamicRecord[] = [];
+
+    const sanitizeKey = (val: string, keyType: 'cpf' | 'telefone' | 'email') => {
+      if (!val) return '';
+      if (keyType === 'email') return val.trim().toLowerCase();
+      return val.replace(/\D/g, '');
+    };
+
+    currentGuideRecords.forEach((rec) => {
+      const rawVal = rec.data[rule] || rec.data[rule.toUpperCase()] || '';
+      const cleanVal = sanitizeKey(String(rawVal), rule);
+
+      if (!cleanVal) {
+        toKeepIds.add(rec.id);
+        return;
+      }
+
+      if (seenKeys.has(cleanVal)) {
+        duplicatesToRemove.push(rec);
+      } else {
+        seenKeys.add(cleanVal);
+        toKeepIds.add(rec.id);
+      }
+    });
+
+    if (duplicatesToRemove.length === 0) {
+      showToast(`Nenhuma duplicidade por ${rule.toUpperCase()} encontrada nesta guia.`);
+      return;
+    }
+
+    const targetSchemaName = schemas.find(s => s.id === schemaId)?.name || "Base";
+    const idsToRemove = duplicatesToRemove.map(r => r.id);
+
+    // Save Deduplication Undo Session
+    const newSession: DeduplicationSession = {
+      id: `dedup_${Date.now()}`,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 30 * 60 * 1000,
+      schemaId,
+      schemaName: targetSchemaName,
+      rule,
+      removedRecords: duplicatesToRemove,
+      active: true
+    };
+    setDedupSession(newSession);
+
+    // Optimistic UI update
+    setRecords(prev => prev.filter(r => !idsToRemove.includes(r.id)));
+
+    try {
+      const res = await fetch("/api/records/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: idsToRemove })
+      });
+
+      if (!res.ok) throw new Error("Erro no servidor");
+
+      showToast(`✅ ${duplicatesToRemove.length} duplicidades removidas da base "${targetSchemaName}". Você pode desfazer nos próximos 30 minutos.`);
+    } catch (err) {
+      console.error(err);
+      showToast("Erro ao excluir duplicidades no servidor. Recarregando...");
+      handleManualRefresh();
+    }
+  };
+
+  const handleUndoDeduplication = async () => {
+    if (!dedupSession || !dedupSession.removedRecords || dedupSession.removedRecords.length === 0) return;
+
+    const restoredRecords = dedupSession.removedRecords;
+    const targetSchemaId = dedupSession.schemaId;
+
+    try {
+      showToast(`Restaurando ${restoredRecords.length} registros...`);
+
+      const res = await fetch("/api/records/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          records: restoredRecords,
+          mode: "append",
+          reportId: targetSchemaId
+        })
+      });
+
+      if (!res.ok) throw new Error("Erro ao restaurar registros.");
+
+      setRecords(prev => [...prev, ...restoredRecords]);
+      setDedupSession(null);
+      localStorage.removeItem("crm_dedup_session");
+
+      showToast(`✅ ${restoredRecords.length} registros restaurados com sucesso na guia.`);
+    } catch (err) {
+      console.error(err);
+      showToast("Erro ao restaurar registros.");
+    }
+  };
+
+  const handleDismissDeduplication = () => {
+    setDedupSession(null);
+    localStorage.removeItem("crm_dedup_session");
+  };
+
   const handleUpdateRecord = async (id: string, updatedData: Record<string, string>) => {
-    // 0. Synchronously resolve canonical reportId and mark local edit timestamp
     const existingRec = records.find((r) => r.id === id);
     const targetReportId = (existingRec?.reportId && existingRec.reportId !== '1')
       ? existingRec.reportId
@@ -487,7 +673,7 @@ function App() {
     setSyncStatus('saving');
     persistPendingUpdates();
 
-    // 3. Immediately dispatch request with fallback to retry queue
+    // 3. Dispatch to API with user tracking
     try {
       const res = await fetch("/api/records", {
         method: "POST",
@@ -495,7 +681,11 @@ function App() {
         body: JSON.stringify({
           id,
           reportId: targetReportId,
-          data: updatedData
+          data: updatedData,
+          username: currentUser || 'Operador',
+          userRole: userRole || 'editor',
+          clientName: existingRec?.data?.nome || existingRec?.data?.NOME || '',
+          clientCpf: existingRec?.data?.cpf || existingRec?.data?.CPF || ''
         }),
       });
 
@@ -507,6 +697,7 @@ function App() {
         if (remaining === 0) {
           setSyncStatus('saved');
         }
+        setTodayTratativasCount(prev => prev + 1);
       } else {
         throw new Error("Server responded with error status");
       }
@@ -537,18 +728,24 @@ function App() {
       const res = await fetch("/api/records/bulk-update", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, updatedData }),
+        body: JSON.stringify({ 
+          ids, 
+          updatedData,
+          username: currentUser || 'Operador',
+          userRole: userRole || 'editor',
+          reportId: activeSchemaId || 'default'
+        }),
       });
       if (res.ok) {
         setSyncStatus('saved');
         showToast(`${ids.length} registros atualizados com sucesso.`);
+        setTodayTratativasCount(prev => prev + ids.length);
       } else {
         throw new Error("Bulk update failed");
       }
     } catch (err) {
       setSyncStatus('pending');
       showToast("Erro de conexão ao salvar em massa. Tentando novamente em segundo plano.");
-      // Register all in pending queue for background retry
       ids.forEach(id => {
         const existing = pendingUpdatesRef.current.get(id);
         pendingUpdatesRef.current.set(id, {
@@ -570,101 +767,18 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: idsToDelete }),
       });
-      if (!response.ok) throw new Error("Failed to delete records");
-      showToast(`${idsToDelete.length} registros excluídos.`);
+      if (!response.ok) {
+        throw new Error("Failed to delete records on server");
+      }
+      showToast(`${idsToDelete.length} registros apagados com sucesso.`);
     } catch (err) {
-      showToast("Erro ao excluir.");
+      console.error(err);
+      showToast("Erro ao apagar registros no servidor.");
     }
-  };
-
-  const handleDeduplicateGuide = async (
-    columnId: string,
-    columnLabel: string,
-    idsToDelete: string[],
-    removedRecords: DynamicRecord[]
-  ) => {
-    if (!activeSchema || idsToDelete.length === 0) return;
-
-    // 1. Optimistically remove from local state
-    const idsSet = new Set(idsToDelete);
-    setRecords((prev) => prev.filter((r) => !idsSet.has(r.id)));
-
-    // 2. Persist 30-minute undo session
-    const now = Date.now();
-    const session: DeduplicationSession = {
-      id: `dedup_${now}`,
-      schemaId: activeSchema.id,
-      schemaName: activeSchema.name,
-      columnId,
-      columnLabel,
-      removedRecords,
-      createdAt: now,
-      expiresAt: now + 30 * 60 * 1000 // 30 minutes
-    };
-    setDedupSession(session);
-
-    // 3. Dispatch bulk deletion to server
-    try {
-      const res = await fetch("/api/records/bulk", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: idsToDelete }),
-      });
-      if (!res.ok) throw new Error("Falha ao remover duplicatas no servidor");
-      showToast(`🧹 ${idsToDelete.length} duplicatas removidas da guia "${activeSchema.name}" (Base: ${columnLabel}). Desfazer disponível por 30 min.`);
-    } catch (err) {
-      console.error("Error deleting duplicates:", err);
-      showToast("Erro ao sincronizar remoção no servidor.");
-    }
-  };
-
-  const handleUndoDeduplication = async (session: DeduplicationSession) => {
-    if (!session || !session.removedRecords || session.removedRecords.length === 0) return;
-
-    // 1. Optimistically restore to local records
-    setRecords((prev) => {
-      const existingIds = new Set(prev.map(r => r.id));
-      const toAdd = session.removedRecords.filter(r => !existingIds.has(r.id));
-      return [...prev, ...toAdd];
-    });
-
-    // 2. Clear undo session
-    setDedupSession(null);
-    localStorage.removeItem("crm_dedup_session");
-
-    // 3. Restore in bulk on server
-    try {
-      const res = await fetch("/api/records/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          records: session.removedRecords,
-          mode: "append",
-          reportId: session.schemaId
-        }),
-      });
-      if (!res.ok) throw new Error("Falha ao restaurar registros no servidor");
-      showToast(`✓ Ação desfeita com sucesso! ${session.removedRecords.length} registros foram restaurados na guia "${session.schemaName}".`);
-    } catch (err) {
-      console.error("Error restoring duplicates:", err);
-      showToast("Erro ao restaurar registros no servidor.");
-    }
-  };
-
-  const handleDismissDeduplication = (sessionId: string) => {
-    setDedupSession(null);
-    localStorage.removeItem("crm_dedup_session");
-    showToast("Dados temporários de duplicatas foram descartados.");
   };
 
   const handleImport = async (newRecords: DynamicRecord[], mode: "append" | "overwrite") => {
     if (!activeSchema) return;
-    if (userRole !== 'admin') {
-      showToast("Acesso negado: Apenas administradores podem importar dados.");
-      return;
-    }
-
-    setIsImportModalOpen(false);
 
     setImportProgress({
       isImporting: true,
@@ -676,17 +790,14 @@ function App() {
 
     const isOverwrite = mode === "overwrite";
 
-    // Build map of existing records to keep / update
     const recordsMap = new Map<string, DynamicRecord>();
     records.forEach(r => {
       if (isOverwrite && r.reportId === activeSchema.id) {
-        // Overwriting active schema: don't keep existing records from active schema
         return;
       }
       recordsMap.set(r.id, r);
     });
 
-    // Calculate max order for active schema
     let maxOrder = 0;
     recordsMap.forEach((r) => {
       if (r.reportId === activeSchema.id) {
@@ -721,7 +832,6 @@ function App() {
     setRecords(updatedRecordsState);
 
     const finalRecordsToSave = recordsToSaveInBulk;
-
     setImportProgress(prev => ({ ...prev, step: 'uploading' }));
 
     const CHUNK_SIZE = 2000;
@@ -756,7 +866,6 @@ function App() {
 
       setImportProgress(prev => ({ ...prev, step: 'syncing' }));
 
-      // Re-fetch state from server to confirm full sync
       const refreshRes = await fetch("/api/records");
       if (refreshRes.ok) {
         const cleanRecs = await refreshRes.json();
@@ -840,6 +949,24 @@ function App() {
           </div>
           
           <div className="flex items-center gap-2">
+            {/* Admin Dedicated Page Switcher Button */}
+            {userRole === 'admin' && (
+              <button
+                onClick={() => {
+                  setCurrentPage('admin_management');
+                  localStorage.setItem("crm_current_page", "admin_management");
+                }}
+                title="Abrir tela exclusiva de Gestão: Tratativas Diárias dos Operadores e Backups Automáticos"
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase transition-all border-2 border-[#141414] bg-amber-300 text-amber-950 hover:bg-amber-400 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer"
+              >
+                <Activity size={15} className="text-amber-900" />
+                <span>Painel de Gestão (Tratativas & Backups)</span>
+                <span className="bg-[#141414] text-white px-1.5 py-0.5 text-[10px] font-mono font-bold rounded-sm">
+                  {todayTratativasCount} hoje
+                </span>
+              </button>
+            )}
+
             <button
               onClick={handleManualRefresh}
               disabled={isManualRefreshing}
@@ -883,7 +1010,6 @@ function App() {
                         const res = await fetch(`/api/records/report/${activeSchema.id}`, { method: 'DELETE' });
                         if (!res.ok) throw new Error("Erro no servidor ao apagar base");
 
-                        // Clear records for this schema locally
                         setRecords(prev => prev.filter(r => r.reportId !== activeSchema.id));
                         localStorage.setItem("crm_records_backup", JSON.stringify(records.filter(r => r.reportId !== activeSchema.id)));
                         
@@ -911,8 +1037,9 @@ function App() {
           </div>
         </div>
 
-        {/* Tabs Bar */}
+        {/* Tabs Bar - Only Client Bases & New Base */}
         <div className="px-4 flex items-center gap-1.5 bg-[#E4E3E0] pt-1 overflow-x-auto hide-scrollbar border-t-2 border-[#141414]">
+          {/* Regular Database Guides */}
           {schemas.map(schema => (
             <div key={schema.id} className={`flex items-center border-2 border-b-0 border-[#141414] rounded-t-sm whitespace-nowrap transition-colors
                   ${activeSchemaId === schema.id 
@@ -920,7 +1047,7 @@ function App() {
                     : "bg-[#C5C4C0] text-[#141414]/60 hover:bg-[#D1D0CC]"}`}>
               <button
                 onClick={() => setActiveSchemaId(schema.id)}
-                className="pl-3 pr-1 py-1 text-[10px] font-black uppercase tracking-wider"
+                className="pl-3 pr-1 py-1 text-[10px] font-black uppercase tracking-wider cursor-pointer"
               >
                 {schema.name}
               </button>
@@ -938,7 +1065,7 @@ function App() {
                       }
                     }}
                     title="Duplicar Guia"
-                    className="hover:text-black transition-colors"
+                    className="hover:text-black transition-colors cursor-pointer"
                   >
                     <Copy size={12} />
                   </button>
@@ -950,13 +1077,11 @@ function App() {
                           const response = await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
                           if (!response.ok) throw new Error("Failed to delete schema on server");
                           
-                          // Server-side deleted, now update local state
                           setSchemas(schemas.filter(s => s.id !== schema.id));
                           if (activeSchemaId === schema.id) {
                             const remainingSchemas = schemas.filter(s => s.id !== schema.id);
                             setActiveSchemaId(remainingSchemas.length > 0 ? remainingSchemas[0].id : '');
                           }
-                          // Also remove associated records from local state
                           setRecords(prev => prev.filter(r => r.reportId !== schema.id));
                           
                           showToast(`Guia "${schema.name}" removida.`);
@@ -966,7 +1091,7 @@ function App() {
                       }
                     }}
                     title="Apagar Guia"
-                    className="hover:text-red-600 transition-colors"
+                    className="hover:text-red-600 transition-colors cursor-pointer"
                   >
                     <Trash2 size={12} />
                   </button>
@@ -974,13 +1099,15 @@ function App() {
               )}
             </div>
           ))}
+
+          {/* New Guide Button */}
           {userRole === 'admin' && (
             <button
               onClick={() => {
                 setEditingSchema(undefined);
                 setIsSchemaModalOpen(true);
               }}
-              className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[#141414] border-2 border-transparent hover:border-[#141414] transition-colors rounded-t-sm mb-[2px] flex items-center gap-1"
+              className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-[#141414] border-2 border-transparent hover:border-[#141414] transition-colors rounded-t-sm mb-[2px] flex items-center gap-1 cursor-pointer"
             >
               <Plus size={14} /> Nova Guia
             </button>
@@ -999,8 +1126,9 @@ function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden p-6">
-        <section className="h-full bg-white border-4 border-[#141414] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col relative z-0">
+        <section className="h-full bg-white border-4 border-[#141414] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col relative z-0 overflow-y-auto">
           {activeSchema ? (
+            /* Standard Client Table View */
             <ErrorBoundary key={activeSchemaId}>
               <ClientTable
                 schema={activeSchema}
