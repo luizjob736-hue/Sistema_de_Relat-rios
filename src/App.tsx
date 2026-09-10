@@ -685,13 +685,17 @@ function App() {
       ? existingRec.reportId
       : (activeSchemaId || 'default');
 
+    const mergedData = { ...(existingRec?.data || {}), ...updatedData };
+    const currentStatus = mergedData.status || mergedData.Status || mergedData.STATUS || '';
+    const currentObs = mergedData.observacaoFinal || mergedData['Observação final'] || mergedData['Observacao final'] || '';
+
     lastLocalEditTimeRef.current.set(id, Date.now());
 
     // 1. Optimistic instant local update
     setRecords((prev) =>
       prev.map((r) => {
         if (r.id === id) {
-          return { ...r, reportId: targetReportId, data: { ...r.data, ...updatedData } };
+          return { ...r, reportId: targetReportId, data: mergedData };
         }
         return r;
       })
@@ -717,6 +721,8 @@ function App() {
           id,
           reportId: targetReportId,
           data: updatedData,
+          currentStatus,
+          currentObs,
           username: currentUser || 'Operador',
           userRole: userRole || 'editor',
           clientName: existingRec?.data?.nome || existingRec?.data?.NOME || '',

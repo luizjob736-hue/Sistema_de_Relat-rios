@@ -901,6 +901,9 @@ app.post("/api/records", async (req, res) => {
     if (newRecord.username || newRecord.data) {
       const clientName = newRecord.data?.nome || newRecord.data?.NOME || newRecord.clientName || '';
       const clientCpf = newRecord.data?.cpf || newRecord.data?.CPF || newRecord.clientCpf || '';
+      const statusValue = newRecord.currentStatus || newRecord.data?.status || newRecord.data?.Status || '';
+      const obsValue = newRecord.currentObs || newRecord.data?.observacaoFinal || newRecord.data?.['Observação final'] || '';
+      
       const actionType = newRecord.data?.status || newRecord.data?.Status ? 'STATUS_CHANGE' : 
                          newRecord.data?.observacaoFinal || newRecord.data?.['Observação final'] ? 'OBSERVACAO_CHANGE' : 'EDICAO';
       
@@ -912,7 +915,11 @@ app.post("/api/records", async (req, res) => {
         clientName,
         clientCpf,
         actionType,
-        details: { changes: newRecord.data || {} }
+        details: { 
+          changes: newRecord.data || {},
+          currentStatus: statusValue,
+          currentObs: obsValue
+        }
       }).catch(e => console.warn("Log tratativa error:", e));
     }
 
@@ -1206,7 +1213,7 @@ app.get("/api/tratativas/stats", async (req, res) => {
           WHERE date_str = ${targetDate}
           ORDER BY created_at ASC
         `,
-        sql`SELECT id, name FROM report_schemas`
+        sql`SELECT id, name, fields FROM report_schemas`
       ]);
     } catch (dbErr) {
       const cache = loadFallbackData();
@@ -1215,8 +1222,79 @@ app.get("/api/tratativas/stats", async (req, res) => {
       schemas = cache.schemas || [];
     }
 
+    const schemaMap = new Map<string, any>();
     const schemaNameMap = new Map<string, string>();
-    (schemas || []).forEach(s => schemaNameMap.set(s.id, s.name));
+    (schemas || []).forEach(s => {
+      let fields = s.fields;
+      if (typeof fields === "string") {
+        try { fields = JSON.parse(fields); } catch (e) { fields = []; }
+      }
+      schemaMap.set(s.id, { ...s, fields });
+      schemaNameMap.set(s.id, s.name);
+    });
+
+    // Fetch corresponding dynamic_records to inspect status if the log was for another field edit
+    const recordIds = Array.from(new Set(dayLogs.map((l: any) => l.recordId).filter(Boolean)));
+    const recordsMap = new Map<string, any>();
+    if (recordIds.length > 0) {
+      try {
+        const recs = await sql`
+          SELECT id, report_id as "reportId", data
+          FROM dynamic_records
+          WHERE id = ANY(${recordIds})
+        `;
+        (recs || []).forEach(r => recordsMap.set(r.id, r));
+      } catch (dbErr) {
+        const cache = loadFallbackData();
+        (cache.records || []).forEach(r => {
+          if (recordIds.includes(r.id)) recordsMap.set(r.id, r);
+        });
+      }
+    }
+
+    // Helper to accurately classify status
+    const classifyStatusOutcome = (statusRaw: string, obsRaw: string, statusConfigs?: any[]): 'Sucesso' | 'Sem Sucesso' | 'Sem Resposta' | 'Outras' => {
+      const stat = String(statusRaw || '').trim();
+      const norm = stat.toLowerCase();
+
+      // If status is empty or non-informative
+      if (!stat || stat === '-' || stat === '—' || stat === '(vazio)' || stat === 'null' || stat === 'undefined') {
+        const obs = String(obsRaw || '').trim().toLowerCase();
+        if (obs.includes('proposta finalizada') || obs.includes('acordo') || obs.includes('paga') || obs.includes('fechado')) {
+          return 'Sucesso';
+        }
+        if (obs.includes('contato sem sucesso') || obs.includes('recusado') || obs.includes('sem interesse')) {
+          return 'Sem Sucesso';
+        }
+        if (obs.includes('pendente') || obs.includes('caixa postal') || obs.includes('não atende') || obs.includes('nao atende')) {
+          return 'Sem Resposta';
+        }
+        return 'Outras';
+      }
+
+      // 1. Check custom statusConfigs from schema
+      if (statusConfigs && Array.isArray(statusConfigs) && statusConfigs.length > 0) {
+        const matched = statusConfigs.find(c => c && c.motivo && c.motivo.trim().toLowerCase() === norm);
+        if (matched) {
+          if (matched.subMotivo === 'Sucesso') return 'Sucesso';
+          if (matched.subMotivo === 'Sem Sucesso') return 'Sem Sucesso';
+          if (matched.subMotivo === 'Sem Resposta') return 'Sem Resposta';
+        }
+      }
+
+      // 2. Standard heuristic keywords
+      if (norm.includes('sem sucesso') || norm.includes('recusad') || norm.includes('sem interesse') || norm.includes('inválid') || norm.includes('invalido') || norm.includes('errado') || norm.includes('falecid') || norm.includes('desistiu') || norm.includes('reprovad') || norm.includes('cancelad')) {
+        return 'Sem Sucesso';
+      }
+      if (norm.includes('sucesso') || norm.includes('acordo') || norm.includes('fechad') || norm.includes('aprovad') || norm.includes('paga') || norm.includes('aceit') || norm.includes('ganho') || norm.includes('vend') || norm.includes('finalizad')) {
+        return 'Sucesso';
+      }
+      if (norm.includes('sem resposta') || norm.includes('caixa postal') || norm.includes('não atende') || norm.includes('nao atende') || norm.includes('ocupado') || norm.includes('mudo') || norm.includes('inexistente') || norm.includes('recado') || norm.includes('ausente') || norm.includes('retorno') || norm.includes('pendente')) {
+        return 'Sem Resposta';
+      }
+
+      return 'Sem Resposta';
+    };
 
     // Aggregate user stats
     const userStatsMap = new Map<string, {
@@ -1248,6 +1326,7 @@ app.get("/api/tratativas/stats", async (req, res) => {
     let comSucessoToday = 0;
     let semSucessoToday = 0;
     let semRespostaToday = 0;
+    let outrasToday = 0;
 
     const hourlyMap = new Map<string, number>();
     for (let h = 7; h <= 20; h++) {
@@ -1282,20 +1361,35 @@ app.get("/api/tratativas/stats", async (req, res) => {
       // Check status outcome
       const details = log.details || {};
       const changes = details.changes || {};
-      const newStatus = (changes.status || changes.Status || details.newValue || '').toLowerCase();
-      const newObs = (changes.observacaoFinal || changes['Observação final'] || '').toLowerCase();
+      const associatedRecord = recordsMap.get(log.recordId);
+      const recData = associatedRecord?.data || {};
 
-      if (newStatus.includes('sucesso') && !newStatus.includes('sem')) {
+      const statusVal = details.currentStatus || changes.status || changes.Status || changes.STATUS || details.newValue || recData.status || recData.Status || recData.STATUS || '';
+      const obsVal = details.currentObs || changes.observacaoFinal || changes['Observação final'] || changes['Observacao final'] || recData.observacaoFinal || recData['Observação final'] || recData['Observacao final'] || '';
+
+      const schemaObj = schemaMap.get(log.reportId);
+      let schemaStatusConfigs = schemaObj?.statusConfigs || [];
+      if ((!schemaStatusConfigs || schemaStatusConfigs.length === 0) && schemaObj?.fields && Array.isArray(schemaObj.fields)) {
+        const statusField = schemaObj.fields.find((f: any) => f && (f.id === 'status' || (f.label && f.label.toLowerCase() === 'status')));
+        if (statusField?.statusConfigs) {
+          schemaStatusConfigs = statusField.statusConfigs;
+        }
+      }
+
+      const outcome = classifyStatusOutcome(statusVal, obsVal, schemaStatusConfigs);
+
+      if (outcome === 'Sucesso') {
         stat.comSucesso++;
         comSucessoToday++;
-      } else if (newStatus.includes('sem sucesso') || newObs.includes('contato sem sucesso')) {
+      } else if (outcome === 'Sem Sucesso') {
         stat.semSucesso++;
         semSucessoToday++;
-      } else if (newStatus.includes('sem resposta') || newObs.includes('pendente')) {
+      } else if (outcome === 'Sem Resposta') {
         stat.semResposta++;
         semRespostaToday++;
       } else {
         stat.outras++;
+        outrasToday++;
       }
 
       // Hourly grouping
@@ -1331,6 +1425,7 @@ app.get("/api/tratativas/stats", async (req, res) => {
       comSucessoToday,
       semSucessoToday,
       semRespostaToday,
+      outrasToday,
       activeUsersCount,
       userStats,
       hourlyDistribution,

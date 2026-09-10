@@ -197,9 +197,9 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
       </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
         {/* Total Tratativas no Dia */}
-        <div className="bg-[#D9D8D4] border border-[#141414] p-4 flex items-center justify-between">
+        <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
           <div>
             <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5">
               TRATATIVAS NO DIA
@@ -211,13 +211,13 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
               <span className="text-[10px] font-bold text-slate-600">ações</span>
             </div>
           </div>
-          <div className="bg-white/50 p-2.5 border border-[#141414] text-[#141414]">
-            <TrendingUp size={18} />
+          <div className="bg-white/50 p-2 border border-[#141414] text-[#141414]">
+            <TrendingUp size={16} />
           </div>
         </div>
 
         {/* Com Sucesso */}
-        <div className="bg-[#D9D8D4] border border-[#141414] p-4 flex items-center justify-between">
+        <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
           <div>
             <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5">
               COM SUCESSO
@@ -233,13 +233,13 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
               )}
             </div>
           </div>
-          <div className="bg-emerald-100 p-2.5 border border-emerald-900 text-emerald-900">
-            <CheckCircle2 size={18} />
+          <div className="bg-emerald-100 p-2 border border-emerald-900 text-emerald-900">
+            <CheckCircle2 size={16} />
           </div>
         </div>
 
         {/* Sem Sucesso */}
-        <div className="bg-[#D9D8D4] border border-[#141414] p-4 flex items-center justify-between">
+        <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
           <div>
             <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5">
               SEM SUCESSO
@@ -250,13 +250,13 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
               </span>
             </div>
           </div>
-          <div className="bg-rose-100 p-2.5 border border-rose-900 text-rose-900">
-            <XCircle size={18} />
+          <div className="bg-rose-100 p-2 border border-rose-900 text-rose-900">
+            <XCircle size={16} />
           </div>
         </div>
 
         {/* Sem Resposta */}
-        <div className="bg-[#D9D8D4] border border-[#141414] p-4 flex items-center justify-between">
+        <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
           <div>
             <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5">
               SEM RESPOSTA
@@ -267,13 +267,30 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
               </span>
             </div>
           </div>
-          <div className="bg-amber-100 p-2.5 border border-amber-900 text-amber-900">
-            <HelpCircle size={18} />
+          <div className="bg-amber-100 p-2 border border-amber-900 text-amber-900">
+            <HelpCircle size={16} />
+          </div>
+        </div>
+
+        {/* Outras Ações / Sem Status */}
+        <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
+          <div>
+            <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5" title="Ações ou edições realizadas em registros que não possuem status definido">
+              SEM STATUS / OUTRAS
+            </span>
+            <div className="flex items-baseline gap-1.5 font-mono">
+              <span className="text-2xl font-bold text-slate-700">
+                {summary?.outrasToday || 0}
+              </span>
+            </div>
+          </div>
+          <div className="bg-slate-200 p-2 border border-slate-700 text-slate-800">
+            <Layers size={16} />
           </div>
         </div>
 
         {/* Operadores Ativos & Destaque */}
-        <div className="bg-[#D9D8D4] border border-[#141414] p-4 flex items-center justify-between">
+        <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
           <div>
             <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5">
               OPERADORES ATIVOS
@@ -287,13 +304,13 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
               </span>
             </div>
             {topPerformer && (
-              <span className="text-[9px] font-bold text-amber-900 truncate block max-w-[120px]">
+              <span className="text-[9px] font-bold text-amber-900 truncate block max-w-[110px]">
                 ★ Top: {topPerformer.username} ({topPerformer.totalTratativas})
               </span>
             )}
           </div>
-          <div className="bg-amber-200/80 p-2.5 border border-amber-900 text-amber-950">
-            <Award size={18} />
+          <div className="bg-amber-200/80 p-2 border border-amber-900 text-amber-950">
+            <Award size={16} />
           </div>
         </div>
       </div>
@@ -353,6 +370,7 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
                     <th className="p-2.5 border-r border-slate-700 text-center text-emerald-300 font-mono">Com Sucesso</th>
                     <th className="p-2.5 border-r border-slate-700 text-center text-rose-300 font-mono">Sem Sucesso</th>
                     <th className="p-2.5 border-r border-slate-700 text-center text-amber-300 font-mono">Sem Resposta</th>
+                    <th className="p-2.5 border-r border-slate-700 text-center text-slate-300 font-mono" title="Ações/Edições em registros que ainda não tiveram status definido">Sem Status</th>
                     <th className="p-2.5 border-r border-slate-700 text-center font-mono">Taxa de Sucesso</th>
                     <th className="p-2.5 border-r border-slate-700 text-center">Último Horário</th>
                     <th className="p-2.5">Bases Trabalhadas</th>
@@ -361,7 +379,7 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
                 <tbody className="divide-y divide-[#141414]">
                   {(!summary?.userStats || summary.userStats.length === 0) ? (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-slate-600 italic">
+                      <td colSpan={11} className="p-8 text-center text-slate-600 italic">
                         Nenhum dado de produtividade encontrado para esta data.
                       </td>
                     </tr>
@@ -409,6 +427,9 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
                           </td>
                           <td className="p-2.5 border-r border-[#141414] text-center font-mono font-bold text-amber-800">
                             {u.semResposta}
+                          </td>
+                          <td className="p-2.5 border-r border-[#141414] text-center font-mono font-bold text-slate-600">
+                            {u.outras}
                           </td>
                           <td className="p-2.5 border-r border-[#141414] text-center font-mono">
                             <div className="flex items-center justify-center gap-1.5">

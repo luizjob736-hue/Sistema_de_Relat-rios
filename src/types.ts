@@ -173,6 +173,7 @@ export interface DailyTratativasSummary {
   comSucessoToday: number;
   semSucessoToday: number;
   semRespostaToday: number;
+  outrasToday?: number;
   activeUsersCount: number;
   userStats: UserDailyStat[];
   hourlyDistribution: { hour: string; count: number }[];
