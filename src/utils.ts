@@ -507,6 +507,139 @@ export const formatCurrentDateTime = () => {
   return `${day}/${month}/${year} às ${hours}:${minutes}`;
 };
 
+export const getTodayISODate = (): string => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+export const getYesterdayISODate = (): string => {
+  const now = new Date();
+  now.setDate(now.getDate() - 1);
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+export const normalizeDateStringToISO = (dateRaw: string | number | undefined | null): string | null => {
+  if (!dateRaw) return null;
+  if (typeof dateRaw === 'number') {
+    const d = new Date(dateRaw);
+    if (!isNaN(d.getTime())) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    return null;
+  }
+  const str = String(dateRaw).trim();
+  if (!str || str === '-' || str === '—' || str === 'null' || str === 'undefined') return null;
+
+  // 1. Matches DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const brMatch = str.match(/\b(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})\b/);
+  if (brMatch) {
+    const day = brMatch[1].padStart(2, '0');
+    const month = brMatch[2].padStart(2, '0');
+    let year = brMatch[3];
+    if (year.length === 2) {
+      year = `20${year}`;
+    }
+    const yNum = parseInt(year, 10);
+    const mNum = parseInt(month, 10);
+    const dNum = parseInt(day, 10);
+    if (yNum >= 2000 && yNum <= 2099 && mNum >= 1 && mNum <= 12 && dNum >= 1 && dNum <= 31) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  // 2. Matches YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = str.match(/\b(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})\b/);
+  if (isoMatch) {
+    const year = isoMatch[1];
+    const month = isoMatch[2].padStart(2, '0');
+    const day = isoMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // 3. Try new Date()
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime()) && parsed.getFullYear() >= 2000 && parsed.getFullYear() <= 2099) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
+};
+
+export const formatISODateToBR = (isoDate: string): string => {
+  if (!isoDate || !isoDate.includes('-')) return isoDate || '';
+  const parts = isoDate.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return isoDate;
+};
+
+/**
+ * Extracts all unique filling / tratativa dates for a given record (as sorted ISO "YYYY-MM-DD" strings)
+ */
+export const extractRecordFillingDates = (record: DynamicRecord | undefined | null): string[] => {
+  if (!record || !record.data) return [];
+  const foundDates = new Set<string>();
+
+  // Check specific system timestamp fields
+  if (record.data._lastEditDate) {
+    const iso = normalizeDateStringToISO(record.data._lastEditDate);
+    if (iso) foundDates.add(iso);
+  }
+  if (record.data._lastEditTimestamp) {
+    const iso = normalizeDateStringToISO(Number(record.data._lastEditTimestamp));
+    if (iso) foundDates.add(iso);
+  }
+  if (record.data.updatedAt) {
+    const iso = normalizeDateStringToISO(record.data.updatedAt);
+    if (iso) foundDates.add(iso);
+  }
+  if (record.data.createdAt) {
+    const iso = normalizeDateStringToISO(record.data.createdAt);
+    if (iso) foundDates.add(iso);
+  }
+
+  // Check attempt fields and all date fields in record.data
+  for (const [key, val] of Object.entries(record.data)) {
+    if (!val || typeof val !== 'string' || val === '-' || val.trim() === '') continue;
+    const keyLower = key.toLowerCase();
+    
+    // Attempt columns or date columns
+    if (
+      keyLower.includes('tentativa') ||
+      keyLower.includes('data') ||
+      keyLower.includes('hora') ||
+      keyLower.includes('dt_') ||
+      keyLower.includes('date') ||
+      keyLower.includes('preench') ||
+      keyLower.includes('tratativa')
+    ) {
+      const iso = normalizeDateStringToISO(val);
+      if (iso) foundDates.add(iso);
+    } else {
+      // General regex search in any cell value if it looks like a date
+      if (/\b\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4}\b/.test(val) || /\b\d{4}-\d{2}-\d{2}\b/.test(val)) {
+        const iso = normalizeDateStringToISO(val);
+        if (iso) foundDates.add(iso);
+      }
+    }
+  }
+
+  return Array.from(foundDates).sort().reverse();
+};
+
 export const isObservationFinalized = (obs: string | undefined | null): boolean => {
   if (!obs) return false;
   const s = String(obs).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");

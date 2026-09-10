@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash } from "lucide-react";
+import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash, Calendar, CalendarDays, Clock, X, Check } from "lucide-react";
 import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
-import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized, fixMojibake, getRecordStatus, calculateExecutiveStatusSummary } from "../utils";
+import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized, fixMojibake, getRecordStatus, calculateExecutiveStatusSummary, normalizeDateStringToISO, formatISODateToBR, extractRecordFillingDates, getTodayISODate, getYesterdayISODate } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
 import { DeduplicationModal } from "./DeduplicationModal";
 import { EditableTextCell } from "./EditableTextCell";
@@ -40,6 +40,8 @@ export function ClientTable({
   const [isStatusConfigOpen, setIsStatusConfigOpen] = useState(false);
   const [isDeduplicationOpen, setIsDeduplicationOpen] = useState(false);
   const [bulkEdits, setBulkEdits] = useState<Record<string, string>>({});
+  const [countDateFilter, setCountDateFilter] = useState<string>("all");
+  const [filterTableByCountDate, setFilterTableByCountDate] = useState<boolean>(false);
 
   const rowsPerPage = 50;
 
@@ -173,6 +175,33 @@ export function ClientTable({
     });
   };
 
+  // Detected dates available in records of this guide
+  const availableDatesData = useMemo(() => {
+    const allReportRecords = getReportRecords(records, schema?.id || '');
+    const dateCounts: Record<string, number> = {};
+    
+    allReportRecords.forEach(r => {
+      const dates = extractRecordFillingDates(r);
+      dates.forEach(d => {
+        dateCounts[d] = (dateCounts[d] || 0) + 1;
+      });
+    });
+
+    const todayISO = getTodayISODate();
+    const yesterdayISO = getYesterdayISODate();
+
+    const sortedDates = Object.keys(dateCounts).sort().reverse();
+    
+    return {
+      dates: sortedDates,
+      dateCounts,
+      todayISO,
+      yesterdayISO,
+      todayCount: dateCounts[todayISO] || 0,
+      yesterdayCount: dateCounts[yesterdayISO] || 0,
+    };
+  }, [records, schema?.id]);
+
   const filteredAndSortedRecords = useMemo(() => {
     let result = getReportRecords(records, schema?.id || '');
 
@@ -184,7 +213,18 @@ export function ClientTable({
       result = result.filter(record => !isRecordFinalized(record, fields));
     }
 
-    // 2. Global search filter
+    // 2. Optional: Date of filling filter linked to count filter
+    if (filterTableByCountDate && countDateFilter !== 'all') {
+      const targetISO = normalizeDateStringToISO(countDateFilter);
+      if (targetISO) {
+        result = result.filter(record => {
+          const dates = extractRecordFillingDates(record);
+          return dates.includes(targetISO);
+        });
+      }
+    }
+
+    // 3. Global search filter
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
       result = result.filter(record => {
@@ -199,7 +239,7 @@ export function ClientTable({
       });
     }
 
-    // 3. Per-column filters (excluding _finalizada which is handled above)
+    // 4. Per-column filters (excluding _finalizada which is handled above)
     const activeColFilters = Object.entries(columnFilters).filter(
       ([k, val]) => k !== '_finalizada' && typeof val === 'string' && val.trim() !== ""
     ) as [string, string][];
@@ -216,7 +256,7 @@ export function ClientTable({
       });
     }
 
-    // 4. Sorting
+    // 5. Sorting
     if (sortField === '_finalizada') {
       result.sort((a, b) => {
         const valA = isRecordFinalized(a, fields) ? 1 : 0;
@@ -245,7 +285,7 @@ export function ClientTable({
     }
 
     return result;
-  }, [records, searchTerm, columnFilters, sortField, sortOrder, schema?.id, fields]);
+  }, [records, searchTerm, columnFilters, sortField, sortOrder, schema?.id, fields, filterTableByCountDate, countDateFilter]);
 
   // Executive summary calculation based strictly on active (non-finalized) records and the Status column
   const reportStats = useMemo(() => {
@@ -258,12 +298,21 @@ export function ClientTable({
     const activeReportRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
     const obsField = fields.find(f => f.id === 'observacaoFinal' || f.label.toLowerCase().includes('observa'));
     
-    if (!obsField) return { counts: [], total: 0 };
+    if (!obsField) return { counts: [], total: 0, targetDateISO: null, dateFormatted: null, treatedClientsCount: 0 };
+
+    const targetDateISO = countDateFilter !== 'all' ? normalizeDateStringToISO(countDateFilter) : null;
+
+    const recordsToAnalyze = targetDateISO
+      ? activeReportRecords.filter(r => {
+          const dates = extractRecordFillingDates(r);
+          return dates.includes(targetDateISO);
+        })
+      : activeReportRecords;
 
     const counts: Record<string, number> = {};
     let total = 0;
     
-    activeReportRecords.forEach(r => {
+    recordsToAnalyze.forEach(r => {
       let val = getCellValue(r.data, obsField);
       if (!val || val === '-' || val.trim() === '') {
         return;
@@ -274,8 +323,14 @@ export function ClientTable({
     });
 
     const sortedCounts = Object.entries(counts).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
-    return { counts: sortedCounts, total };
-  }, [records, schema?.id, fields]);
+    return { 
+      counts: sortedCounts, 
+      total, 
+      targetDateISO,
+      dateFormatted: targetDateISO ? formatISODateToBR(targetDateISO) : null,
+      treatedClientsCount: recordsToAnalyze.length
+    };
+  }, [records, schema?.id, fields, countDateFilter]);
 
   const formatPct = (val: number, total: number) => {
     if (total === 0) return "0,00%";
@@ -297,7 +352,8 @@ export function ClientTable({
   };
 
   const copyObsTable = () => {
-    let text = `Contagem (Observação Final - ${schema.name} - Ativas)\nObservação Final\tQtd.\n`;
+    const dateLabel = observacaoBreakdown.dateFormatted ? ` - ${observacaoBreakdown.dateFormatted}` : " - Todas as Datas";
+    let text = `Contagem (Observação Final - ${schema.name}${dateLabel})\nObservação Final\tQtd.\n`;
     observacaoBreakdown.counts.forEach(c => text += `${c.label}\t${c.count}\n`);
     text += `Total Geral\t${observacaoBreakdown.total}`;
     navigator.clipboard.writeText(text).then(() => {
@@ -372,97 +428,183 @@ export function ClientTable({
 
   return (
     <div className="flex flex-col h-full bg-[#E4E3E0]">
-      {/* Resumo Executivo & Contagens (Calculado Automaticamente por SubMotivo) */}
+      {/* Contagem (Observação Final) com Filtro por Dia de Preenchimento */}
       <div className="bg-white border-b-2 border-[#141414] p-3 shrink-0">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-          {/* Métricas Principais */}
-          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
-            <div>
-              <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-[#141414]">
-                <h3 className="text-xs font-black uppercase tracking-wider text-[#141414] flex items-center gap-1.5">
-                  <BarChart3 size={15} /> Resumo Executivo: {schema.name}
+        <div className="w-full">
+          {/* Tabela de Observação Final */}
+          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] flex flex-col min-h-[175px] max-h-72">
+            
+            {/* Top Bar: Título & Ações Principais */}
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-2 pb-1.5 border-b border-[#141414] shrink-0">
+              <div className="flex items-center gap-2">
+                <BarChart3 size={15} className="text-[#141414]" />
+                <h3 className="text-xs font-black uppercase tracking-wider text-[#141414]">
+                  Contagem (Observação Final) — {schema.name}
                 </h3>
-                <div className="flex items-center gap-1.5">
-                  {canEdit && (
-                    <button
-                      onClick={() => setIsStatusConfigOpen(true)}
-                      className="flex items-center gap-1 px-2 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
-                      title="Gerenciar motivos e submotivos do status"
-                    >
-                      <Settings2 size={11} />
-                      <span>Configurar Status</span>
-                    </button>
-                  )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {canEdit && (
                   <button
-                    onClick={copySummary}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                    onClick={() => setIsStatusConfigOpen(true)}
+                    className="flex items-center gap-1 px-2 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
+                    title="Gerenciar motivos e submotivos do status"
                   >
-                    <ClipboardCopy size={11} />
-                    <span>{copyFeedback || "Copiar Resumo"}</span>
+                    <Settings2 size={11} />
+                    <span>Configurar Status</span>
                   </button>
+                )}
+                <button
+                  onClick={copyObsTable}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
+                  title="Copiar dados da contagem formatados para área de transferência"
+                >
+                  <ClipboardCopy size={11} />
+                  <span>{copyFeedback || "Copiar Tabela"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Toolbar de Filtro por Data de Preenchimento / Produtividade Diária */}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-2 py-1.5 bg-white border border-[#141414] text-xs shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-1">
+                  <Calendar size={12} className="text-[#141414]" />
+                  Data de Preenchimento:
+                </span>
+
+                {/* Botão: Geral (Todas as Datas) */}
+                <button
+                  type="button"
+                  onClick={() => setCountDateFilter("all")}
+                  className={`px-2 py-0.5 text-[10px] font-mono font-bold uppercase transition-all border cursor-pointer ${
+                    countDateFilter === "all"
+                      ? "bg-[#141414] text-white border-[#141414]"
+                      : "bg-[#F2F1EB] text-slate-800 border-[#141414] hover:bg-slate-200"
+                  }`}
+                >
+                  Todas (Geral)
+                </button>
+
+                {/* Botão Rápido: Hoje */}
+                <button
+                  type="button"
+                  onClick={() => setCountDateFilter(availableDatesData.todayISO)}
+                  className={`px-2 py-0.5 text-[10px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
+                    countDateFilter === availableDatesData.todayISO
+                      ? "bg-emerald-800 text-white border-emerald-950"
+                      : "bg-emerald-50 text-emerald-900 border-emerald-800 hover:bg-emerald-100"
+                  }`}
+                >
+                  <span>Hoje ({formatISODateToBR(availableDatesData.todayISO)})</span>
+                  {availableDatesData.todayCount > 0 && (
+                    <span className="text-[9px] bg-emerald-700/40 text-emerald-950 px-1 rounded-xs font-bold">
+                      {availableDatesData.todayCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Botão Rápido: Ontem */}
+                <button
+                  type="button"
+                  onClick={() => setCountDateFilter(availableDatesData.yesterdayISO)}
+                  className={`px-2 py-0.5 text-[10px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
+                    countDateFilter === availableDatesData.yesterdayISO
+                      ? "bg-slate-800 text-white border-slate-950"
+                      : "bg-[#F2F1EB] text-slate-700 border-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  <span>Ontem</span>
+                  {availableDatesData.yesterdayCount > 0 && (
+                    <span className="text-[9px] bg-slate-300 text-slate-800 px-1 rounded-xs font-bold">
+                      {availableDatesData.yesterdayCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Dropdown de Todas as Datas Detectadas */}
+                <div className="flex items-center gap-1">
+                  <select
+                    value={countDateFilter}
+                    onChange={(e) => setCountDateFilter(e.target.value)}
+                    className="bg-[#F2F1EB] border border-[#141414] text-[10px] font-mono font-bold px-1.5 py-0.5 outline-none text-[#141414] cursor-pointer"
+                  >
+                    <option value="all">Outras datas ({availableDatesData.dates.length} disponíveis)...</option>
+                    {availableDatesData.dates.map((d) => (
+                      <option key={`date_opt_${d}`} value={d}>
+                        {formatISODateToBR(d)} ({availableDatesData.dateCounts[d]} clientes)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Seletor Livre de Calendário */}
+                <div className="flex items-center gap-1">
+                  <input
+                    type="date"
+                    value={countDateFilter !== "all" ? countDateFilter : ""}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setCountDateFilter(e.target.value);
+                      }
+                    }}
+                    className="bg-white border border-[#141414] text-[10px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[115px]"
+                    title="Selecionar qualquer data no calendário"
+                  />
                 </div>
               </div>
-              <ul className="text-xs font-mono text-slate-700 space-y-1">
-                <li className="flex justify-between border-b border-gray-200 pb-1">
-                  <span className="font-bold text-[#141414]">Total da base (ativas):</span>
-                  <span className="font-bold font-mono">
-                    {reportStats.totalBase.toLocaleString('pt-BR')} clientes
-                    {reportStats.finalizadasCount > 0 && (
-                      <span className="text-[10px] font-normal text-rose-800 ml-1">
-                        ({reportStats.finalizadasCount} finalizadas)
-                      </span>
-                    )}
-                  </span>
-                </li>
-                <li className="flex justify-between border-b border-gray-200 pb-1">
-                  <span className="font-bold text-[#141414]">Base trabalhada:</span>
-                  <span><strong className="font-mono">{reportStats.baseTrabalhada.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})</span></span>
-                </li>
-                <li className="flex justify-between border-b border-gray-200 pb-1">
-                  <span className="font-bold text-emerald-900">Contato efetivo:</span>
-                  <span><strong className="font-mono text-emerald-900">{reportStats.contatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})</span></span>
-                </li>
-                <li className="flex justify-between border-b border-gray-200 pb-1">
-                  <span className="font-bold text-amber-900">Sem contato efetivo:</span>
-                  <span><strong className="font-mono text-amber-900">{reportStats.semContatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></span>
-                </li>
-                <li className="flex justify-between border-b border-gray-200 pb-1">
-                  <span className="font-bold text-[#141414]">Pendências de discagem:</span>
-                  <span><strong className="font-mono">{reportStats.pendenciasDiscagem.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></span>
-                </li>
-              </ul>
+
+              {/* Opção de sincronizar e filtrar a listagem principal pela data selecionada */}
+              <div className="flex items-center gap-2">
+                {countDateFilter !== "all" && (
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-800 select-none bg-amber-50 px-1.5 py-0.5 border border-amber-800">
+                    <input
+                      type="checkbox"
+                      checked={filterTableByCountDate}
+                      onChange={(e) => setFilterTableByCountDate(e.target.checked)}
+                      className="rounded-none border border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-3 w-3"
+                    />
+                    <span>Filtrar tabela abaixo por este dia</span>
+                  </label>
+                )}
+
+                {countDateFilter !== "all" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCountDateFilter("all");
+                      setFilterTableByCountDate(false);
+                    }}
+                    className="flex items-center gap-1 px-1.5 py-0.5 bg-rose-100 border border-rose-900 text-rose-950 text-[10px] font-bold hover:bg-rose-200 transition-colors cursor-pointer"
+                    title="Voltar para contagem geral de todas as datas"
+                  >
+                    <X size={10} />
+                    <span>Limpar data</span>
+                  </button>
+                )}
+              </div>
             </div>
-            {reportStats.finalizadasCount > 0 && (
-              <div className="mt-1.5 flex justify-between text-rose-900 bg-rose-50/90 px-2 py-1 border border-rose-200 text-[11px]">
-                <span className="font-bold text-rose-900 flex items-center gap-1">
-                  <CheckCircle2 size={12} className="text-rose-700" /> Propostas finalizadas:
+
+            {/* Indicador de Status do Filtro de Data Ativo */}
+            {observacaoBreakdown.targetDateISO && (
+              <div className="mb-1.5 px-2 py-0.5 bg-emerald-50 border border-emerald-800 text-[10px] font-mono font-bold text-emerald-950 flex items-center justify-between">
+                <span>
+                  ★ Produtividade de <strong>{observacaoBreakdown.dateFormatted}</strong>: {observacaoBreakdown.total} ações registradas ({observacaoBreakdown.treatedClientsCount} clientes trabalhados)
                 </span>
-                <span className="font-bold font-mono text-rose-900">{reportStats.finalizadasCount.toLocaleString('pt-BR')} (fora do resumo)</span>
+                {filterTableByCountDate && (
+                  <span className="text-[9px] text-emerald-800 uppercase tracking-wider">
+                    [Tabela de clientes filtrada]
+                  </span>
+                )}
               </div>
             )}
-          </div>
-
-          {/* Tabela de Observação Final */}
-          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] flex flex-col min-h-[175px] max-h-60 md:max-h-64">
-            <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-[#141414] shrink-0">
-              <h3 className="text-xs font-black uppercase tracking-wider text-[#141414]">
-                Contagem (Observação Final)
-              </h3>
-              <button
-                onClick={copyObsTable}
-                className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
-              >
-                <ClipboardCopy size={11} />
-                Copiar Tabela
-              </button>
-            </div>
             
+            {/* Tabela de Contagem */}
             <div className="flex-1 overflow-y-auto border border-[#141414] bg-white">
               <table className="w-full text-xs text-left font-sans">
                 <thead className="bg-[#E4E3E0] text-[#141414] text-[10px] uppercase font-bold border-b border-[#141414] sticky top-0 z-10">
                   <tr>
                     <th className="px-2.5 py-1.5 border-r border-[#141414]">Observação Final</th>
-                    <th className="px-2.5 py-1.5 w-20 text-right">Qtd.</th>
+                    <th className="px-2.5 py-1.5 w-24 text-right">Qtd.</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 text-xs">
@@ -474,7 +616,12 @@ export function ClientTable({
                   ))}
                   {observacaoBreakdown.counts.length === 0 && (
                     <tr key="empty-obs">
-                      <td colSpan={2} className="px-2.5 py-3 text-center text-slate-500 italic text-xs">Nenhuma observação preenchida.</td>
+                      <td colSpan={2} className="px-2.5 py-3 text-center text-slate-500 italic text-xs">
+                        {observacaoBreakdown.targetDateISO 
+                          ? `Nenhum preenchimento de observação final encontrado para a data ${observacaoBreakdown.dateFormatted}.`
+                          : "Nenhuma observação preenchida."
+                        }
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -482,8 +629,10 @@ export function ClientTable({
             </div>
 
             <div className="bg-[#E4E3E0] font-bold border-2 border-t-0 border-[#141414] text-xs flex justify-between px-2.5 py-1.5 shrink-0">
-              <span className="uppercase text-[10px] font-bold tracking-wider">Total Geral</span>
-              <span className="font-mono">{observacaoBreakdown.total}</span>
+              <span className="uppercase text-[10px] font-bold tracking-wider">
+                {observacaoBreakdown.targetDateISO ? `Total em ${observacaoBreakdown.dateFormatted}` : "Total Geral"}
+              </span>
+              <span className="font-mono font-bold">{observacaoBreakdown.total}</span>
             </div>
           </div>
         </div>

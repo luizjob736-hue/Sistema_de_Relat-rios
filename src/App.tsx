@@ -685,7 +685,14 @@ function App() {
       ? existingRec.reportId
       : (activeSchemaId || 'default');
 
-    const mergedData = { ...(existingRec?.data || {}), ...updatedData };
+    const todayISO = new Date().toISOString().split('T')[0];
+    const dataWithTimestamp = {
+      _lastEditDate: todayISO,
+      _lastEditTimestamp: String(Date.now()),
+      ...updatedData
+    };
+
+    const mergedData = { ...(existingRec?.data || {}), ...dataWithTimestamp };
     const currentStatus = mergedData.status || mergedData.Status || mergedData.STATUS || '';
     const currentObs = mergedData.observacaoFinal || mergedData['Observação final'] || mergedData['Observacao final'] || '';
 
@@ -705,7 +712,7 @@ function App() {
     const existingPending = pendingUpdatesRef.current.get(id);
     pendingUpdatesRef.current.set(id, {
       reportId: targetReportId,
-      data: { ...(existingPending?.data || {}), ...updatedData },
+      data: { ...(existingPending?.data || {}), ...dataWithTimestamp },
       timestamp: Date.now()
     });
     setPendingCount(pendingUpdatesRef.current.size);
@@ -720,7 +727,7 @@ function App() {
         body: JSON.stringify({
           id,
           reportId: targetReportId,
-          data: updatedData,
+          data: dataWithTimestamp,
           currentStatus,
           currentObs,
           username: currentUser || 'Operador',
@@ -753,12 +760,18 @@ function App() {
   const handleUpdateRecordsBulk = async (ids: string[], updatedData: Record<string, string>) => {
     const idsSet = new Set(ids);
     const now = Date.now();
+    const todayISO = new Date().toISOString().split('T')[0];
+    const dataWithTimestamp = {
+      _lastEditDate: todayISO,
+      _lastEditTimestamp: String(now),
+      ...updatedData
+    };
     ids.forEach(id => lastLocalEditTimeRef.current.set(id, now));
 
     setRecords((prev) =>
       prev.map((r) => {
         if (idsSet.has(r.id)) {
-          return { ...r, data: { ...r.data, ...updatedData } };
+          return { ...r, data: { ...r.data, ...dataWithTimestamp } };
         }
         return r;
       })
@@ -771,7 +784,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           ids, 
-          updatedData,
+          updatedData: dataWithTimestamp,
           username: currentUser || 'Operador',
           userRole: userRole || 'editor',
           reportId: activeSchemaId || 'default'
@@ -785,12 +798,13 @@ function App() {
         throw new Error("Bulk update failed");
       }
     } catch (err) {
+      console.warn("[Bulk Update] Network save failed, persisting locally:", err);
       setSyncStatus('pending');
       showToast("Erro de conexão ao salvar em massa. Tentando novamente em segundo plano.");
       ids.forEach(id => {
         const existing = pendingUpdatesRef.current.get(id);
         pendingUpdatesRef.current.set(id, {
-          data: { ...(existing?.data || {}), ...updatedData },
+          data: { ...(existing?.data || {}), ...dataWithTimestamp },
           timestamp: Date.now()
         });
       });
