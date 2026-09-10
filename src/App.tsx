@@ -312,142 +312,153 @@ function App() {
     }
   }, [dedupSession]);
 
+  const fetchData = useCallback(async (isBackground = false, isManual = false) => {
+    try {
+      if (isManual) {
+        setIsManualRefreshing(true);
+      }
+
+      const [schemasRes, recordsRes] = await Promise.all([
+        fetch("/api/schemas"),
+        fetch("/api/records")
+      ]);
+      
+      let s: ReportSchema[] = schemasRes.ok ? await schemasRes.json() : [];
+      let r: DynamicRecord[] = recordsRes.ok ? await recordsRes.json() : [];
+
+      // Deduplicate schemas by ID and normalized Name
+      const cleanSchemas: ReportSchema[] = [];
+      const seenIds = new Set<string>();
+      const seenNames = new Map<string, string>(); // normName -> canonicalId
+      const idRemap: Record<string, string> = {}; // oldId -> canonicalId
+
+      (s || []).forEach((sch) => {
+        if (!sch || !sch.name) return;
+        let sId = sch.id === '1' ? 'default' : sch.id;
+        const normName = sch.name.trim().toLowerCase();
+
+        if (seenNames.has(normName)) {
+          const canonicalId = seenNames.get(normName)!;
+          idRemap[sch.id] = canonicalId;
+          return;
+        }
+
+        if (seenIds.has(sId)) {
+          return;
+        }
+
+        const canonicalSchema = { ...sch, id: sId };
+        cleanSchemas.push(canonicalSchema);
+        seenIds.add(sId);
+        if (sch.id !== sId) {
+          idRemap[sch.id] = sId;
+        }
+        if (normName) {
+          seenNames.set(normName, sId);
+        }
+      });
+
+      setSchemas(cleanSchemas);
+      try {
+        localStorage.setItem("crm_schemas_backup", JSON.stringify(cleanSchemas));
+      } catch (e) {}
+
+      const savedActiveTab = localStorage.getItem("crm_active_tab");
+      const canonicalActiveTab = savedActiveTab && idRemap[savedActiveTab] ? idRemap[savedActiveTab] : savedActiveTab;
+      
+      if (canonicalActiveTab && cleanSchemas.some((sch: ReportSchema) => sch.id === canonicalActiveTab)) {
+        setActiveSchemaId(canonicalActiveTab);
+      } else if (!isBackground) {
+        setActiveSchemaId(cleanSchemas[0]?.id || '');
+      }
+
+      // Set server records as authoritative, but PRESERVE local pending in-flight updates & recent edits
+      const now = Date.now();
+      const recordMap = new Map<string, DynamicRecord>();
+      (r || []).forEach((rec) => {
+        if (rec && rec.id) {
+          let recReportId = rec.reportId || 'default';
+          if (idRemap[recReportId]) {
+            recReportId = idRemap[recReportId];
+          }
+
+          const lastEdit = lastLocalEditTimeRef.current.get(rec.id) || 0;
+          const isRecentlyEdited = (now - lastEdit) < 45000;
+
+          let mergedData = { ...rec.data };
+          if (pendingUpdatesRef.current.has(rec.id)) {
+            const pending = pendingUpdatesRef.current.get(rec.id)!;
+            mergedData = { ...mergedData, ...pending.data };
+          }
+
+          if (isRecentlyEdited) {
+            const existingLocal = recordsRef.current.find(lr => lr.id === rec.id);
+            if (existingLocal) {
+              mergedData = { ...mergedData, ...existingLocal.data };
+            }
+          }
+
+          recordMap.set(rec.id, { ...rec, reportId: recReportId, data: mergedData });
+        }
+      });
+
+      pendingUpdatesRef.current.forEach((pending, pendingId) => {
+        if (!recordMap.has(pendingId)) {
+          recordMap.set(pendingId, {
+            id: pendingId,
+            reportId: pending.reportId || 'default',
+            data: pending.data
+          });
+        }
+      });
+
+      let finalRecords = Array.from(recordMap.values());
+
+      setRecords(finalRecords);
+      try {
+        const backupRecords = finalRecords.slice(0, 1000);
+        localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
+      } catch (e) {}
+
+      if (userRole === 'admin') {
+        fetchTodayTratativasCount();
+      }
+
+      if (isManual) {
+        showToast("Dados sincronizados com sucesso.");
+      }
+    } catch (err) {
+      if (!isBackground) {
+        console.error("Failed to load data", err);
+        const localBackup = localStorage.getItem("crm_records_backup");
+        if (localBackup) {
+          try {
+            setRecords(JSON.parse(localBackup));
+          } catch (e) {}
+        }
+        if (isManual) {
+          showToast("Erro ao sincronizar dados.");
+        }
+      }
+    } finally {
+      if (!isBackground) {
+        setIsLoading(false);
+      }
+      setIsManualRefreshing(false);
+    }
+  }, [fetchTodayTratativasCount, userRole]);
+
   useEffect(() => {
     if (!currentUser) {
       setIsLoading(false);
       return;
     }
 
-    let isSubscribed = true;
-
-    const fetchData = async (isBackground = false) => {
-      try {
-        const [schemasRes, recordsRes] = await Promise.all([
-          fetch("/api/schemas"),
-          fetch("/api/records")
-        ]);
-        
-        if (!isSubscribed) return;
-
-        let s: ReportSchema[] = schemasRes.ok ? await schemasRes.json() : [];
-        let r: DynamicRecord[] = recordsRes.ok ? await recordsRes.json() : [];
-
-        // Deduplicate schemas by ID and normalized Name
-        const cleanSchemas: ReportSchema[] = [];
-        const seenIds = new Set<string>();
-        const seenNames = new Map<string, string>(); // normName -> canonicalId
-        const idRemap: Record<string, string> = {}; // oldId -> canonicalId
-
-        (s || []).forEach((sch) => {
-          if (!sch || !sch.name) return;
-          let sId = sch.id === '1' ? 'default' : sch.id;
-          const normName = sch.name.trim().toLowerCase();
-
-          if (seenNames.has(normName)) {
-            const canonicalId = seenNames.get(normName)!;
-            idRemap[sch.id] = canonicalId;
-            return;
-          }
-
-          if (seenIds.has(sId)) {
-            return;
-          }
-
-          const canonicalSchema = { ...sch, id: sId };
-          cleanSchemas.push(canonicalSchema);
-          seenIds.add(sId);
-          if (sch.id !== sId) {
-            idRemap[sch.id] = sId;
-          }
-          if (normName) {
-            seenNames.set(normName, sId);
-          }
-        });
-
-        setSchemas(cleanSchemas);
-        try {
-          localStorage.setItem("crm_schemas_backup", JSON.stringify(cleanSchemas));
-        } catch (e) {}
-
-        const savedActiveTab = localStorage.getItem("crm_active_tab");
-        const canonicalActiveTab = savedActiveTab && idRemap[savedActiveTab] ? idRemap[savedActiveTab] : savedActiveTab;
-        
-        if (canonicalActiveTab && cleanSchemas.some((sch: ReportSchema) => sch.id === canonicalActiveTab)) {
-          setActiveSchemaId(canonicalActiveTab);
-        } else if (!isBackground) {
-          setActiveSchemaId(cleanSchemas[0]?.id || '');
-        }
-
-        // Set server records as authoritative, but PRESERVE local pending in-flight updates
-        const now = Date.now();
-        const recordMap = new Map<string, DynamicRecord>();
-        (r || []).forEach((rec) => {
-          if (rec && rec.id) {
-            let recReportId = rec.reportId || 'default';
-            if (idRemap[recReportId]) {
-              recReportId = idRemap[recReportId];
-            }
-
-            const lastEdit = lastLocalEditTimeRef.current.get(rec.id) || 0;
-            const isRecentlyEdited = (now - lastEdit) < 45000;
-
-            let mergedData = { ...rec.data };
-            if (pendingUpdatesRef.current.has(rec.id)) {
-              const pending = pendingUpdatesRef.current.get(rec.id)!;
-              mergedData = { ...mergedData, ...pending.data };
-            }
-
-            if (isRecentlyEdited) {
-              const existingLocal = recordsRef.current.find(lr => lr.id === rec.id);
-              if (existingLocal) {
-                mergedData = { ...mergedData, ...existingLocal.data };
-              }
-            }
-
-            recordMap.set(rec.id, { ...rec, reportId: recReportId, data: mergedData });
-          }
-        });
-
-        pendingUpdatesRef.current.forEach((pending, pendingId) => {
-          if (!recordMap.has(pendingId)) {
-            recordMap.set(pendingId, {
-              id: pendingId,
-              reportId: pending.reportId || 'default',
-              data: pending.data
-            });
-          }
-        });
-
-        let finalRecords = Array.from(recordMap.values());
-
-        setRecords(finalRecords);
-        try {
-          const backupRecords = finalRecords.slice(0, 1000);
-          localStorage.setItem("crm_records_backup", JSON.stringify(backupRecords));
-        } catch (e) {}
-      } catch (err) {
-        if (!isBackground) {
-          console.error("Failed to load data", err);
-          const localBackup = localStorage.getItem("crm_records_backup");
-          if (localBackup) {
-            try {
-              setRecords(JSON.parse(localBackup));
-            } catch (e) {}
-          }
-        }
-      } finally {
-        if (!isBackground && isSubscribed) {
-          setIsLoading(false);
-        }
-        setIsManualRefreshing(false);
-      }
-    };
-
-    fetchData(false);
+    fetchData(false, false);
 
     const pollInterval = setInterval(() => {
       if (document.visibilityState === "visible") {
-        fetchData(true);
+        fetchData(true, false);
       }
     }, 30000);
 
@@ -455,41 +466,24 @@ function App() {
       const now = Date.now();
       if (now - lastFocusFetchTimeRef.current > 15000 && pendingUpdatesRef.current.size === 0) {
         lastFocusFetchTimeRef.current = now;
-        fetchData(true);
+        fetchData(true, false);
       }
     };
 
     window.addEventListener("focus", handleFocus);
 
     return () => {
-      isSubscribed = false;
       clearInterval(pollInterval);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [currentUser]);
+  }, [currentUser, fetchData]);
 
   const handleManualRefresh = async () => {
-    setIsManualRefreshing(true);
-    try {
-      const [schemasRes, recordsRes] = await Promise.all([
-        fetch("/api/schemas"),
-        fetch("/api/records")
-      ]);
-      if (schemasRes.ok) {
-        const s = await schemasRes.json();
-        setSchemas(s);
-      }
-      if (recordsRes.ok) {
-        const r = await recordsRes.json();
-        setRecords(r);
-      }
-      fetchTodayTratativasCount();
-      showToast("Dados sincronizados com sucesso.");
-    } catch (err) {
-      showToast("Erro ao sincronizar dados.");
-    } finally {
-      setIsManualRefreshing(false);
+    // If pending queue has items, flush them first
+    if (pendingUpdatesRef.current.size > 0) {
+      await flushPendingQueue();
     }
+    await fetchData(false, true);
   };
 
   if (!currentUser) {
@@ -907,14 +901,7 @@ function App() {
 
       setImportProgress(prev => ({ ...prev, step: 'syncing' }));
 
-      const refreshRes = await fetch("/api/records");
-      if (refreshRes.ok) {
-        const cleanRecs = await refreshRes.json();
-        setRecords(cleanRecs);
-        try {
-          localStorage.setItem("crm_records_backup", JSON.stringify(cleanRecs));
-        } catch (e) {}
-      }
+      await fetchData(true, false);
 
       setImportProgress(prev => ({
         ...prev,

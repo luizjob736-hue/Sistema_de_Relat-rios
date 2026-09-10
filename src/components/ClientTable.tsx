@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash } from "lucide-react";
 import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
-import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized, fixMojibake } from "../utils";
+import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized, fixMojibake, getRecordStatus, calculateExecutiveStatusSummary } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
 import { DeduplicationModal } from "./DeduplicationModal";
 import { EditableTextCell } from "./EditableTextCell";
@@ -137,46 +137,24 @@ export function ClientTable({
     }
 
     const isFinal = isRecordFinalized(item, fields);
+    const { isWorked, subMotivo } = getRecordStatus(item, fields, statusConfigs);
 
-    const statusField = fields.find(f => f.id === 'status' || f.label.toLowerCase() === 'status');
-    const statusVal = statusField ? getCellValue(item?.data || {}, statusField) : '-';
-
-    if (!statusVal || statusVal === "-" || statusVal.trim() === "") {
+    if (!isWorked) {
       return isFinal ? "bg-[#F5F4F0] opacity-90 hover:bg-[#EDECE7] transition-colors" : "hover:bg-white/60 transition-colors";
     }
 
-    const sNorm = statusVal.trim().toLowerCase();
-
-    // Check matched config from statusConfigs if exists
-    const config = statusConfigs.find(c => c.motivo === statusVal || c.motivo.trim().toLowerCase() === sNorm);
-    const sub = config?.subMotivo;
-
     // 1. Sem Sucesso -> Soft Pastel Red
-    if (
-      sub === 'Sem Sucesso' ||
-      sNorm === 'sem sucesso' ||
-      sNorm.includes('sem sucesso')
-    ) {
+    if (subMotivo === 'Sem Sucesso') {
       return isFinal ? "bg-[#FDECEC] opacity-90 hover:bg-[#FCD8D8] transition-colors" : "bg-[#FCE8E6] hover:bg-[#F9D5D2] transition-colors";
     }
 
     // 2. Sem Resposta / Pending -> Soft Pastel Yellow
-    if (
-      sub === 'Sem Resposta' ||
-      sNorm === 'sem resposta' ||
-      sNorm.includes('sem resposta')
-    ) {
+    if (subMotivo === 'Sem Resposta') {
       return isFinal ? "bg-[#FEF9E7] opacity-90 hover:bg-[#FDF2C7] transition-colors" : "bg-[#FFF8E1] hover:bg-[#FFF0B3] transition-colors";
     }
 
     // 3. Com Sucesso -> Soft Pastel Green
-    if (
-      sub === 'Sucesso' ||
-      sNorm === 'com sucesso' ||
-      sNorm === 'sucesso' ||
-      sNorm.includes('com sucesso') ||
-      (sNorm.includes('sucesso') && !sNorm.includes('sem sucesso'))
-    ) {
+    if (subMotivo === 'Sucesso') {
       return isFinal ? "bg-[#ECF7EE] opacity-90 hover:bg-[#D8EEDC] transition-colors" : "bg-[#E6F4EA] hover:bg-[#C8E6C9] transition-colors";
     }
 
@@ -269,103 +247,10 @@ export function ClientTable({
     return result;
   }, [records, searchTerm, columnFilters, sortField, sortOrder, schema?.id, fields]);
 
-  // Executive summary calculation based strictly on active (non-finalized) records
+  // Executive summary calculation based strictly on active (non-finalized) records and the Status column
   const reportStats = useMemo(() => {
     const allReportRecords = getReportRecords(records, schema?.id || '');
-    const activeReportRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
-    const finalizadasCount = allReportRecords.length - activeReportRecords.length;
-    const statusField = fields.find(f => f.id === 'status' || f.label.toLowerCase() === 'status');
-    const obsField = fields.find(f => f.id === 'observacaoFinal' || f.label.toLowerCase().includes('observa'));
-
-    let baseTrabalhada = 0;
-    let contatoEfetivo = 0;
-    let semContatoEfetivo = 0;
-
-    activeReportRecords.forEach(r => {
-      const recData = r?.data || {};
-      
-      // 1. Resolve Status value
-      let statVal = statusField ? getCellValue(recData, statusField) : '-';
-      if (!statVal || statVal === '-') {
-        statVal = recData.status || recData.Status || '-';
-      }
-      const hasStatus = statVal && statVal !== '-' && statVal.trim() !== '';
-
-      // 2. Resolve Observação Final value
-      let obsVal = obsField ? getCellValue(recData, obsField) : '-';
-      if (!obsVal || obsVal === '-') {
-        obsVal = recData.observacaoFinal || recData['Observação final'] || recData['Observacao final'] || '-';
-      }
-      const hasObs = obsVal && obsVal !== '-' && obsVal.trim() !== '';
-
-      // 3. Check for any contact attempts / dates recorded
-      let hasAttempt = false;
-      for (const [k, v] of Object.entries(recData)) {
-        const kLow = k.toLowerCase();
-        if (
-          (kLow.includes('tentativa') || kLow.includes('wpp') || kLow.includes('tel') || kLow.includes('discagem') || kLow.includes('contato')) &&
-          v && v !== '-' && v !== '—' && String(v).trim() !== ''
-        ) {
-          hasAttempt = true;
-          break;
-        }
-      }
-
-      const isWorked = hasStatus || hasObs || hasAttempt;
-
-      if (isWorked) {
-        baseTrabalhada++;
-
-        if (hasStatus) {
-          const normStat = statVal.trim().toLowerCase();
-          const matchingConfig = statusConfigs.find(c => c.motivo.trim().toLowerCase() === normStat);
-
-          if (matchingConfig) {
-            if (matchingConfig.subMotivo === 'Sucesso') {
-              contatoEfetivo++;
-            } else {
-              semContatoEfetivo++;
-            }
-          } else {
-            // Heuristic fallback for unconfigured status text
-            if (normStat.includes('sucesso') && !normStat.includes('sem')) {
-              contatoEfetivo++;
-            } else {
-              semContatoEfetivo++;
-            }
-          }
-        } else if (hasObs) {
-          // Status wasn't selected, but observation was recorded
-          const normObs = obsVal.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          if (
-            normObs.includes('formalizacao') || normObs.includes('link') ||
-            (normObs.includes('document') && normObs.includes('apresentad') && !normObs.includes('nao') && !normObs.includes('sem')) ||
-            normObs.includes('corrigid') || normObs.includes('jornada') ||
-            normObs.includes('reapresentad') || normObs.includes('sem interesse') ||
-            (normObs.includes('sucesso') && !normObs.includes('sem'))
-          ) {
-            contatoEfetivo++;
-          } else {
-            semContatoEfetivo++;
-          }
-        } else {
-          // Contact attempt recorded without status/observation yet
-          semContatoEfetivo++;
-        }
-      }
-    });
-
-    const totalBase = activeReportRecords.length;
-    const pendenciasDiscagem = Math.max(0, totalBase - baseTrabalhada);
-
-    return {
-      totalBase,
-      baseTrabalhada,
-      contatoEfetivo,
-      semContatoEfetivo,
-      pendenciasDiscagem,
-      finalizadasCount
-    };
+    return calculateExecutiveStatusSummary(allReportRecords, fields, statusConfigs);
   }, [records, schema?.id, fields, statusConfigs]);
 
   const observacaoBreakdown = useMemo(() => {
@@ -401,8 +286,8 @@ export function ClientTable({
     const text = `Resumo Executivo (${schema.name})
 • Total da base (ativas): ${reportStats.totalBase.toLocaleString('pt-BR')} clientes${reportStats.finalizadasCount > 0 ? ` (${reportStats.finalizadasCount} propostas finalizadas desconsideradas)` : ''}
 • Base trabalhada: ${reportStats.baseTrabalhada.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})
-• Contato efetivo: ${reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})
-• Sem contato efetivo: ${reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})
+• Contato efetivo: ${reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)}) [Sucesso: ${reportStats.comSucesso}]
+• Sem contato efetivo: ${reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)}) [Sem Sucesso: ${reportStats.semSucesso} | Sem Resposta: ${reportStats.semResposta}]
 • Pendências de discagem: ${reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})${reportStats.finalizadasCount > 0 ? `\n• Propostas finalizadas: ${reportStats.finalizadasCount.toLocaleString('pt-BR')} clientes (fora do cálculo)` : ''}`;
 
     navigator.clipboard.writeText(text).then(() => {
@@ -488,114 +373,118 @@ export function ClientTable({
   return (
     <div className="flex flex-col h-full bg-[#E4E3E0]">
       {/* Resumo Executivo & Contagens (Calculado Automaticamente por SubMotivo) */}
-      <div className="bg-white border-b-2 border-[#141414] p-2.5 shrink-0">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+      <div className="bg-white border-b-2 border-[#141414] p-3 shrink-0">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
           {/* Métricas Principais */}
-          <div className="bg-[#F2F1EB] p-2 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)]">
-            <div className="flex justify-between items-center mb-1 pb-1 border-b border-[#141414]">
-              <h3 className="text-[11px] font-black uppercase tracking-wider text-[#141414] flex items-center gap-1.5">
-                <BarChart3 size={14} /> Resumo Executivo: {schema.name}
-              </h3>
-              <div className="flex items-center gap-1.5">
-                {canEdit && (
-                  <button
-                    onClick={() => setIsStatusConfigOpen(true)}
-                    className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
-                    title="Gerenciar motivos e submotivos do status"
-                  >
-                    <Settings2 size={10} />
-                    <span>Configurar Status</span>
-                  </button>
-                )}
-                <button
-                  onClick={copySummary}
-                  className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
-                >
-                  <ClipboardCopy size={10} />
-                  <span>{copyFeedback || "Copiar Resumo"}</span>
-                </button>
-              </div>
-            </div>
-            <ul className="text-[11px] font-mono text-slate-700 space-y-0.5">
-              <li className="flex justify-between border-b border-gray-200 pb-0.5">
-                <span className="font-bold text-[#141414]">Total da base (ativas):</span>
-                <span className="font-bold font-mono">
-                  {reportStats.totalBase.toLocaleString('pt-BR')} clientes
-                  {reportStats.finalizadasCount > 0 && (
-                    <span className="text-[9px] font-normal text-rose-800 ml-1">
-                      ({reportStats.finalizadasCount} finalizadas)
-                    </span>
+          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
+            <div>
+              <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-[#141414]">
+                <h3 className="text-xs font-black uppercase tracking-wider text-[#141414] flex items-center gap-1.5">
+                  <BarChart3 size={15} /> Resumo Executivo: {schema.name}
+                </h3>
+                <div className="flex items-center gap-1.5">
+                  {canEdit && (
+                    <button
+                      onClick={() => setIsStatusConfigOpen(true)}
+                      className="flex items-center gap-1 px-2 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                      title="Gerenciar motivos e submotivos do status"
+                    >
+                      <Settings2 size={11} />
+                      <span>Configurar Status</span>
+                    </button>
                   )}
-                </span>
-              </li>
-              <li className="flex justify-between border-b border-gray-200 pb-0.5">
-                <span className="font-bold text-[#141414]">Base trabalhada:</span>
-                <span><strong className="font-mono">{reportStats.baseTrabalhada.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})</span></span>
-              </li>
-              <li className="flex justify-between border-b border-gray-200 pb-0.5">
-                <span className="font-bold text-emerald-900">Contato efetivo:</span>
-                <span><strong className="font-mono text-emerald-900">{reportStats.contatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})</span></span>
-              </li>
-              <li className="flex justify-between border-b border-gray-200 pb-0.5">
-                <span className="font-bold text-amber-900">Sem contato efetivo:</span>
-                <span><strong className="font-mono text-amber-900">{reportStats.semContatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></span>
-              </li>
-              <li className="flex justify-between border-b border-gray-200 pb-0.5">
-                <span className="font-bold text-[#141414]">Pendências de discagem:</span>
-                <span><strong className="font-mono">{reportStats.pendenciasDiscagem.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></span>
-              </li>
-              {reportStats.finalizadasCount > 0 && (
-                <li className="flex justify-between pt-0.5 text-rose-900 bg-rose-50/80 px-1.5 py-0.5 border border-rose-200">
-                  <span className="font-bold text-rose-900 flex items-center gap-1">
-                    <CheckCircle2 size={11} className="text-rose-700" /> Propostas finalizadas:
+                  <button
+                    onClick={copySummary}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                  >
+                    <ClipboardCopy size={11} />
+                    <span>{copyFeedback || "Copiar Resumo"}</span>
+                  </button>
+                </div>
+              </div>
+              <ul className="text-xs font-mono text-slate-700 space-y-1">
+                <li className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-[#141414]">Total da base (ativas):</span>
+                  <span className="font-bold font-mono">
+                    {reportStats.totalBase.toLocaleString('pt-BR')} clientes
+                    {reportStats.finalizadasCount > 0 && (
+                      <span className="text-[10px] font-normal text-rose-800 ml-1">
+                        ({reportStats.finalizadasCount} finalizadas)
+                      </span>
+                    )}
                   </span>
-                  <span className="font-bold font-mono text-rose-900">{reportStats.finalizadasCount.toLocaleString('pt-BR')} (fora do resumo)</span>
                 </li>
-              )}
-            </ul>
+                <li className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-[#141414]">Base trabalhada:</span>
+                  <span><strong className="font-mono">{reportStats.baseTrabalhada.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})</span></span>
+                </li>
+                <li className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-emerald-900">Contato efetivo:</span>
+                  <span><strong className="font-mono text-emerald-900">{reportStats.contatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)})</span></span>
+                </li>
+                <li className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-amber-900">Sem contato efetivo:</span>
+                  <span><strong className="font-mono text-amber-900">{reportStats.semContatoEfetivo.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)})</span></span>
+                </li>
+                <li className="flex justify-between border-b border-gray-200 pb-1">
+                  <span className="font-bold text-[#141414]">Pendências de discagem:</span>
+                  <span><strong className="font-mono">{reportStats.pendenciasDiscagem.toLocaleString('pt-BR')}</strong> <span className="text-slate-500 font-mono">({formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})</span></span>
+                </li>
+              </ul>
+            </div>
+            {reportStats.finalizadasCount > 0 && (
+              <div className="mt-1.5 flex justify-between text-rose-900 bg-rose-50/90 px-2 py-1 border border-rose-200 text-[11px]">
+                <span className="font-bold text-rose-900 flex items-center gap-1">
+                  <CheckCircle2 size={12} className="text-rose-700" /> Propostas finalizadas:
+                </span>
+                <span className="font-bold font-mono text-rose-900">{reportStats.finalizadasCount.toLocaleString('pt-BR')} (fora do resumo)</span>
+              </div>
+            )}
           </div>
 
           {/* Tabela de Observação Final */}
-          <div className="bg-[#F2F1EB] p-2 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] max-h-28 overflow-y-auto">
-            <div className="flex justify-between items-center mb-1 pb-1 border-b border-[#141414] sticky top-0 bg-[#F2F1EB] z-10">
-              <h3 className="text-[11px] font-black uppercase tracking-wider text-[#141414]">
+          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] flex flex-col min-h-[175px] max-h-60 md:max-h-64">
+            <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-[#141414] shrink-0">
+              <h3 className="text-xs font-black uppercase tracking-wider text-[#141414]">
                 Contagem (Observação Final)
               </h3>
               <button
                 onClick={copyObsTable}
-                className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
+                className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5"
               >
-                <ClipboardCopy size={10} />
+                <ClipboardCopy size={11} />
                 Copiar Tabela
               </button>
             </div>
-            <table className="w-full text-[11px] text-left font-sans">
-              <thead className="bg-[#E4E3E0] text-[#141414] text-[10px] uppercase font-bold border-b border-[#141414]">
-                <tr>
-                  <th className="px-1.5 py-0.5 border-r border-[#141414]">Observação Final</th>
-                  <th className="px-1.5 py-0.5 w-16 text-right">Qtd.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 text-[10px]">
-                {observacaoBreakdown.counts.length > 0 && observacaoBreakdown.counts.map((item, idx) => (
-                  <tr key={`obs_${item.label}_${idx}`} className="hover:bg-white/60">
-                    <td className="px-1.5 py-0.5 font-medium text-slate-800">{item.label}</td>
-                    <td className="px-1.5 py-0.5 text-right font-mono font-bold text-slate-900">{item.count}</td>
+            
+            <div className="flex-1 overflow-y-auto border border-[#141414] bg-white">
+              <table className="w-full text-xs text-left font-sans">
+                <thead className="bg-[#E4E3E0] text-[#141414] text-[10px] uppercase font-bold border-b border-[#141414] sticky top-0 z-10">
+                  <tr>
+                    <th className="px-2.5 py-1.5 border-r border-[#141414]">Observação Final</th>
+                    <th className="px-2.5 py-1.5 w-20 text-right">Qtd.</th>
                   </tr>
-                ))}
-                {observacaoBreakdown.counts.length === 0 && (
-                  <tr key="empty-obs">
-                    <td colSpan={2} className="px-1.5 py-1 text-center text-slate-500 italic text-[10px]">Nenhuma observação preenchida.</td>
-                  </tr>
-                )}
-              </tbody>
-              <tfoot className="bg-[#E4E3E0] font-bold border-t border-[#141414] text-[10px]">
-                <tr>
-                  <td className="px-1.5 py-0.5 border-r border-[#141414]">Total Geral</td>
-                  <td className="px-1.5 py-0.5 text-right font-mono">{observacaoBreakdown.total}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-xs">
+                  {observacaoBreakdown.counts.length > 0 && observacaoBreakdown.counts.map((item, idx) => (
+                    <tr key={`obs_${item.label}_${idx}`} className="hover:bg-[#F9F8F6] transition-colors">
+                      <td className="px-2.5 py-1 font-medium text-slate-800">{item.label}</td>
+                      <td className="px-2.5 py-1 text-right font-mono font-bold text-slate-900">{item.count}</td>
+                    </tr>
+                  ))}
+                  {observacaoBreakdown.counts.length === 0 && (
+                    <tr key="empty-obs">
+                      <td colSpan={2} className="px-2.5 py-3 text-center text-slate-500 italic text-xs">Nenhuma observação preenchida.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="bg-[#E4E3E0] font-bold border-2 border-t-0 border-[#141414] text-xs flex justify-between px-2.5 py-1.5 shrink-0">
+              <span className="uppercase text-[10px] font-bold tracking-wider">Total Geral</span>
+              <span className="font-mono">{observacaoBreakdown.total}</span>
+            </div>
           </div>
         </div>
       </div>

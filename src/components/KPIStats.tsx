@@ -1,19 +1,22 @@
 import { Users, CheckCircle2, HelpCircle, XCircle, Clock } from "lucide-react";
-import { DynamicRecord } from "../types";
-import { isRecordFinalized } from "../utils";
+import { DynamicRecord, ReportSchema } from "../types";
+import { calculateExecutiveStatusSummary } from "../utils";
 
 interface KPIStatsProps {
   records: DynamicRecord[];
   schemaId?: string;
+  schema?: ReportSchema;
 }
 
-export default function KPIStats({ records, schemaId = 'default' }: KPIStatsProps) {
-  const filteredRecords = records.filter(r => r.reportId === schemaId && !isRecordFinalized(r));
-  const total = filteredRecords.length;
-  const comSucesso = filteredRecords.filter((r) => r.data.status === "Com Sucesso").length;
-  const semResposta = filteredRecords.filter((r) => r.data.status === "Sem Resposta").length;
-  const semSucesso = filteredRecords.filter((r) => r.data.status === "Sem Sucesso").length;
-  const naoTentado = filteredRecords.filter((r) => !r.data.status || r.data.status === "-").length;
+export default function KPIStats({ records, schemaId = 'default', schema }: KPIStatsProps) {
+  const guideRecords = records.filter(r => r.reportId === schemaId);
+  const stats = calculateExecutiveStatusSummary(guideRecords, schema?.fields, schema?.statusConfigs);
+
+  const total = stats.totalBase;
+  const comSucesso = stats.comSucesso;
+  const semResposta = stats.semResposta;
+  const semSucesso = stats.semSucesso;
+  const naoTentado = stats.pendenciasDiscagem;
 
   const pctSucesso = total > 0 ? Math.round((comSucesso / total) * 100) : 0;
 

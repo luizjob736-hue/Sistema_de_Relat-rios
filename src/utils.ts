@@ -1,5 +1,5 @@
 import { rawCsvData } from "./rawCsvData";
-import { DynamicRecord, ReportSchema, defaultSchema } from "./types";
+import { DynamicRecord, ReportSchema, defaultSchema, FieldDef, StatusConfigItem, SubMotivo } from "./types";
 
 export const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -593,5 +593,118 @@ export const normalizeForDeduplication = (
 
   // General text: normalize extra whitespace and lowercase
   return val.toLowerCase().replace(/\s+/g, " ");
+};
+
+export interface GuideStatusStats {
+  totalBase: number;
+  baseTrabalhada: number;
+  contatoEfetivo: number;
+  semContatoEfetivo: number;
+  pendenciasDiscagem: number;
+  comSucesso: number;
+  semSucesso: number;
+  semResposta: number;
+  finalizadasCount: number;
+}
+
+export const getRecordStatus = (
+  record: DynamicRecord | undefined | null,
+  fields?: FieldDef[],
+  statusConfigs?: StatusConfigItem[]
+): {
+  rawStatus: string;
+  isWorked: boolean;
+  subMotivo: SubMotivo | null;
+} => {
+  if (!record || !record.data) {
+    return { rawStatus: "-", isWorked: false, subMotivo: null };
+  }
+
+  // 1. Try to find the status from fields or standard keys
+  let statVal = "";
+  if (fields && Array.isArray(fields)) {
+    const statusField = fields.find(f => f && (f.id === 'status' || (f.label && f.label.toLowerCase() === 'status')));
+    if (statusField) {
+      statVal = record.data[statusField.id] || record.data[statusField.label] || "";
+    }
+  }
+
+  if (!statVal) {
+    statVal = record.data.status || record.data.Status || record.data['STATUS'] || "";
+  }
+
+  // Normalize
+  statVal = String(statVal || "").trim();
+  if (!statVal || statVal === "-" || statVal === "—" || statVal === "null" || statVal === "undefined" || statVal === "(vazio)") {
+    return { rawStatus: "-", isWorked: false, subMotivo: null };
+  }
+
+  const norm = statVal.toLowerCase();
+  
+  // 2. Match against active schema statusConfigs if provided
+  if (statusConfigs && Array.isArray(statusConfigs) && statusConfigs.length > 0) {
+    const matched = statusConfigs.find(c => c && c.motivo && c.motivo.trim().toLowerCase() === norm);
+    if (matched) {
+      return { rawStatus: statVal, isWorked: true, subMotivo: matched.subMotivo };
+    }
+  }
+
+  // 3. Built-in heuristics for standard status terms
+  if (norm.includes("sem sucesso")) {
+    return { rawStatus: statVal, isWorked: true, subMotivo: "Sem Sucesso" };
+  }
+  if (norm.includes("sucesso") || norm.includes("acordo") || norm.includes("fechad") || norm.includes("aprovad") || norm.includes("aceit")) {
+    return { rawStatus: statVal, isWorked: true, subMotivo: "Sucesso" };
+  }
+  if (norm.includes("sem resposta") || norm.includes("caixa postal") || norm.includes("nao atende") || norm.includes("ocupado") || norm.includes("mudo") || norm.includes("inexistente")) {
+    return { rawStatus: statVal, isWorked: true, subMotivo: "Sem Resposta" };
+  }
+
+  return { rawStatus: statVal, isWorked: true, subMotivo: "Sem Resposta" };
+};
+
+export const calculateExecutiveStatusSummary = (
+  allReportRecords: DynamicRecord[],
+  fields?: FieldDef[],
+  statusConfigs?: StatusConfigItem[]
+): GuideStatusStats => {
+  const activeRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
+  const finalizadasCount = allReportRecords.length - activeRecords.length;
+  const totalBase = activeRecords.length;
+
+  let baseTrabalhada = 0;
+  let comSucesso = 0;
+  let semSucesso = 0;
+  let semResposta = 0;
+
+  for (const record of activeRecords) {
+    const { isWorked, subMotivo } = getRecordStatus(record, fields, statusConfigs);
+    if (isWorked) {
+      baseTrabalhada++;
+      if (subMotivo === 'Sucesso') {
+        comSucesso++;
+      } else if (subMotivo === 'Sem Sucesso') {
+        semSucesso++;
+      } else {
+        semResposta++;
+      }
+    }
+  }
+
+  const pendenciasDiscagem = Math.max(0, totalBase - baseTrabalhada);
+  const contatoEfetivo = comSucesso;
+  const semContatoEfetivo = semSucesso + semResposta;
+
+  return {
+    totalBase,
+    baseTrabalhada,
+    contatoEfetivo,
+    semContatoEfetivo,
+    pendenciasDiscagem,
+    comSucesso,
+    semSucesso,
+    semResposta,
+    finalizadasCount
+  };
 };
 
