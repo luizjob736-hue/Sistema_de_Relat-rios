@@ -14,7 +14,10 @@ import {
   RotateCw,
   Activity,
   Database,
-  CalendarCheck
+  CalendarCheck,
+  Lock,
+  Unlock,
+  ShieldAlert
 } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
@@ -33,6 +36,14 @@ function App() {
   });
   const [userRole, setUserRole] = useState<UserRole | null>(() => {
     return sessionStorage.getItem("crm_user_role") as (UserRole | null);
+  });
+  const [currentUserBlockedGuides, setCurrentUserBlockedGuides] = useState<string[]>(() => {
+    try {
+      const saved = sessionStorage.getItem("crm_user_blocked_guides");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
   });
 
   const [currentPage, setCurrentPage] = useState<'bases' | 'admin_management'>(() => {
@@ -96,18 +107,40 @@ function App() {
     setTimeout(() => setToastMessage(""), 4000);
   };
 
-  const handleLogin = (username: string, role: UserRole) => {
+  const handleLogin = (username: string, role: UserRole, blockedGuides: string[] = []) => {
     setCurrentUser(username);
     setUserRole(role);
+    setCurrentUserBlockedGuides(blockedGuides);
     sessionStorage.setItem("crm_current_user", username);
     sessionStorage.setItem("crm_user_role", role);
+    sessionStorage.setItem("crm_user_blocked_guides", JSON.stringify(blockedGuides));
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setUserRole(null);
+    setCurrentUserBlockedGuides([]);
     sessionStorage.removeItem("crm_current_user");
     sessionStorage.removeItem("crm_user_role");
+    sessionStorage.removeItem("crm_user_blocked_guides");
+  };
+
+  const handleToggleGuideLock = async (schemaId: string, currentLockState: boolean) => {
+    if (userRole !== 'admin') return;
+    try {
+      const res = await fetch(`/api/schemas/${schemaId}/toggle-lock`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isLocked: !currentLockState })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSchemas(prev => prev.map(s => s.id === schemaId ? { ...s, isLocked: data.isLocked } : s));
+        showToast(data.isLocked ? "Guia trancada (Apenas o Administrador terá acesso)." : "Guia destrancada para operadores.");
+      }
+    } catch (e) {
+      showToast("Erro ao alterar bloqueio da guia.");
+    }
   };
 
   // Fetch count of today's tratativas for admin header button
@@ -481,11 +514,19 @@ function App() {
         }}
         onLogout={handleLogout}
         showToast={showToast}
+        onOpenUserManagement={() => setIsUserManagementOpen(true)}
       />
     );
   }
 
   const activeSchema = schemas.find(s => s.id === activeSchemaId) || schemas[0];
+
+  const isCurrentGuideLockedForUser = Boolean(
+    userRole !== 'admin' && activeSchema && (
+      activeSchema.isLocked || 
+      (currentUserBlockedGuides && currentUserBlockedGuides.includes(activeSchema.id))
+    )
+  );
 
   const handleSaveSchema = async (schema: ReportSchema) => {
     if (userRole !== 'admin') {
@@ -1040,65 +1081,94 @@ function App() {
         {/* Tabs Bar - Only Client Bases & New Base */}
         <div className="px-4 flex items-center gap-1.5 bg-[#E4E3E0] pt-1 overflow-x-auto hide-scrollbar border-t-2 border-[#141414]">
           {/* Regular Database Guides */}
-          {schemas.map(schema => (
-            <div key={schema.id} className={`flex items-center border-2 border-b-0 border-[#141414] rounded-t-sm whitespace-nowrap transition-colors
-                  ${activeSchemaId === schema.id 
-                    ? "bg-white text-[#141414] shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] pt-1.5" 
-                    : "bg-[#C5C4C0] text-[#141414]/60 hover:bg-[#D1D0CC]"}`}>
-              <button
-                onClick={() => setActiveSchemaId(schema.id)}
-                className="pl-3 pr-1 py-1 text-[10px] font-black uppercase tracking-wider cursor-pointer"
-              >
-                {schema.name}
-              </button>
-              
-              {userRole === 'admin' && (
-                <div className="flex gap-1 pr-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const defaultNewName = `${schema.name} (Cópia)`;
-                      const name = prompt("Novo nome para a cópia da guia:", defaultNewName);
-                      if (name && name.trim()) {
-                        const newSchema = { ...schema, id: `report_${Date.now()}`, name: name.trim() };
-                        handleSaveSchema(newSchema);
-                      }
-                    }}
-                    title="Duplicar Guia"
-                    className="hover:text-black transition-colors cursor-pointer"
-                  >
-                    <Copy size={12} />
-                  </button>
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"? Todas as planilhas dentro dela serão apagadas.`)) {
-                        try {
-                          const response = await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
-                          if (!response.ok) throw new Error("Failed to delete schema on server");
-                          
-                          setSchemas(schemas.filter(s => s.id !== schema.id));
-                          if (activeSchemaId === schema.id) {
-                            const remainingSchemas = schemas.filter(s => s.id !== schema.id);
-                            setActiveSchemaId(remainingSchemas.length > 0 ? remainingSchemas[0].id : '');
-                          }
-                          setRecords(prev => prev.filter(r => r.reportId !== schema.id));
-                          
-                          showToast(`Guia "${schema.name}" removida.`);
-                        } catch (err) {
-                          showToast("Erro ao excluir guia.");
+          {schemas.map(schema => {
+            const isGuideLocked = Boolean(schema.isLocked);
+            const isGuideRestrictedForUser = userRole !== 'admin' && (
+              isGuideLocked || (currentUserBlockedGuides && currentUserBlockedGuides.includes(schema.id))
+            );
+
+            return (
+              <div key={schema.id} className={`flex items-center border-2 border-b-0 border-[#141414] rounded-t-sm whitespace-nowrap transition-colors
+                    ${activeSchemaId === schema.id 
+                      ? "bg-white text-[#141414] shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] pt-1.5" 
+                      : "bg-[#C5C4C0] text-[#141414]/60 hover:bg-[#D1D0CC]"}`}>
+                <button
+                  onClick={() => setActiveSchemaId(schema.id)}
+                  className="pl-3 pr-1 py-1 text-[10px] font-black uppercase tracking-wider cursor-pointer flex items-center gap-1.5"
+                >
+                  {isGuideLocked && (
+                    <Lock size={11} className={userRole === 'admin' ? "text-amber-600" : "text-red-600"} />
+                  )}
+                  <span>{schema.name}</span>
+                  {isGuideLocked && userRole === 'admin' && (
+                    <span className="text-[8px] bg-amber-100 text-amber-900 border border-amber-300 px-1 py-0.2 font-mono font-bold">
+                      Trancada
+                    </span>
+                  )}
+                </button>
+                
+                {userRole === 'admin' && (
+                  <div className="flex items-center gap-1 pr-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleGuideLock(schema.id, isGuideLocked);
+                      }}
+                      title={isGuideLocked ? "Destrancar guia (Liberar para operadores)" : "Trancar guia (Apenas Administrador terá acesso)"}
+                      className={`p-1 transition-colors cursor-pointer rounded-xs ${
+                        isGuideLocked 
+                          ? "text-amber-700 bg-amber-100 hover:bg-amber-200" 
+                          : "text-slate-500 hover:text-black hover:bg-slate-200"
+                      }`}
+                    >
+                      {isGuideLocked ? <Lock size={12} /> : <Unlock size={12} />}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const defaultNewName = `${schema.name} (Cópia)`;
+                        const name = prompt("Novo nome para a cópia da guia:", defaultNewName);
+                        if (name && name.trim()) {
+                          const newSchema = { ...schema, id: `report_${Date.now()}`, name: name.trim() };
+                          handleSaveSchema(newSchema);
                         }
-                      }
-                    }}
-                    title="Apagar Guia"
-                    className="hover:text-red-600 transition-colors cursor-pointer"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+                      }}
+                      title="Duplicar Guia"
+                      className="hover:text-black transition-colors cursor-pointer p-0.5"
+                    >
+                      <Copy size={12} />
+                    </button>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (confirm(`Tem certeza que deseja apagar a guia "${schema.name}"? Todas as planilhas dentro dela serão apagadas.`)) {
+                          try {
+                            const response = await fetch(`/api/schemas/${schema.id}`, { method: 'DELETE' });
+                            if (!response.ok) throw new Error("Failed to delete schema on server");
+                            
+                            setSchemas(schemas.filter(s => s.id !== schema.id));
+                            if (activeSchemaId === schema.id) {
+                              const remainingSchemas = schemas.filter(s => s.id !== schema.id);
+                              setActiveSchemaId(remainingSchemas.length > 0 ? remainingSchemas[0].id : '');
+                            }
+                            setRecords(prev => prev.filter(r => r.reportId !== schema.id));
+                            
+                            showToast(`Guia "${schema.name}" removida.`);
+                          } catch (err) {
+                            showToast("Erro ao excluir guia.");
+                          }
+                        }
+                      }}
+                      title="Apagar Guia"
+                      className="hover:text-red-600 transition-colors cursor-pointer p-0.5"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           {/* New Guide Button */}
           {userRole === 'admin' && (
@@ -1127,7 +1197,23 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden p-6">
         <section className="h-full bg-white border-4 border-[#141414] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col relative z-0 overflow-y-auto">
-          {activeSchema ? (
+          {isCurrentGuideLockedForUser ? (
+            /* Locked Guide Warning for non-admin */
+            <div className="flex flex-col items-center justify-center h-full gap-5 text-center p-8 bg-[#F9F8F6]">
+              <div className="w-16 h-16 bg-red-100 border-2 border-[#141414] text-red-700 flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                <Lock size={32} />
+              </div>
+              <div className="max-w-md space-y-2">
+                <h2 className="text-xl font-black uppercase tracking-tight text-[#141414]">Acesso Bloqueado à Guia</h2>
+                <p className="text-xs text-slate-700 font-mono">
+                  O acesso à base <strong>"{activeSchema?.name}"</strong> está trancado pelo Administrador ou restrito para o seu perfil.
+                </p>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  Apenas usuários com privilégio de Administrador possuem acesso total a esta guia no momento.
+                </p>
+              </div>
+            </div>
+          ) : activeSchema ? (
             /* Standard Client Table View */
             <ErrorBoundary key={activeSchemaId}>
               <ClientTable
@@ -1183,6 +1269,7 @@ function App() {
         <UserManagementModal
           isOpen={isUserManagementOpen}
           onClose={() => setIsUserManagementOpen(false)}
+          schemas={schemas}
           showToast={showToast}
         />
       )}

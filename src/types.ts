@@ -21,11 +21,22 @@ export interface FieldDef {
   readOnly: boolean;
 }
 
+export interface UserItem {
+  id: string;
+  username: string;
+  role: UserRole;
+  password?: string;
+  isBlocked?: boolean;
+  blockedGuides?: string[];
+  allowedGuides?: string[];
+}
+
 export interface ReportSchema {
   id: string;
   name: string;
   fields: FieldDef[];
   statusConfigs?: StatusConfigItem[];
+  isLocked?: boolean;
 }
 
 export interface DynamicRecord {

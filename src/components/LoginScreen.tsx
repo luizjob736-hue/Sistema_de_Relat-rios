@@ -3,7 +3,7 @@ import { Lock, User, ShieldCheck } from "lucide-react";
 import { UserRole } from "../types";
 
 interface LoginScreenProps {
-  onLogin: (username: string, role: UserRole) => void;
+  onLogin: (username: string, role: UserRole, blockedGuides?: string[]) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
@@ -29,7 +29,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        onLogin(data.username, data.role);
+        onLogin(data.username, data.role, data.blockedGuides || []);
       } else {
         setError(data.error || "Usuário ou senha inválidos.");
       }

@@ -10,7 +10,8 @@ import {
   CheckCircle2,
   Loader2,
   CloudOff,
-  LayoutGrid
+  LayoutGrid,
+  Shield
 } from "lucide-react";
 import { ReportSchema, UserRole } from "../types";
 import AdminProductivityDashboard from "./AdminProductivityDashboard";
@@ -29,6 +30,7 @@ interface AdminManagementPageProps {
   onBackToBases: () => void;
   onLogout: () => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+  onOpenUserManagement?: () => void;
   initialTab?: 'tratativas' | 'backups';
 }
 
@@ -45,6 +47,7 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
   onBackToBases,
   onLogout,
   showToast,
+  onOpenUserManagement,
   initialTab = 'tratativas'
 }) => {
   const [activeTab, setActiveTab] = useState<'tratativas' | 'backups'>(initialTab);
@@ -124,6 +127,17 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
+            {onOpenUserManagement && (
+              <button
+                onClick={onOpenUserManagement}
+                title="Gerenciar usuários e bloquear ou liberar acesso às guias"
+                className="flex items-center gap-1.5 bg-[#141414] text-white border-2 border-[#141414] px-3 py-1.5 text-xs font-black uppercase hover:bg-black transition-all shadow-[2px_2px_0px_#C5C4C0] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer"
+              >
+                <Shield size={14} className="text-amber-400" />
+                <span>Bloqueios & Acessos</span>
+              </button>
+            )}
+
             <button
               onClick={onRefresh}
               disabled={isManualRefreshing}

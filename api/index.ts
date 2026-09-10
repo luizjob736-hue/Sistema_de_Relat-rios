@@ -2,7 +2,7 @@ import express from "express";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, inArray } from "drizzle-orm";
-import { pgTable, text, jsonb, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import fs from "fs";
 import path from "path";
 import * as xlsx from "xlsx";
@@ -113,6 +113,9 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   role: text("role").notNull(),
+  isBlocked: boolean("is_blocked").default(false),
+  blockedGuides: jsonb("blocked_guides").$type<string[]>(),
+  allowedGuides: jsonb("allowed_guides").$type<string[]>(),
 });
 
 export const auditTratativas = pgTable("audit_tratativas", {
@@ -172,9 +175,21 @@ async function initDb() {
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL,
-        role TEXT NOT NULL
+        role TEXT NOT NULL,
+        is_blocked BOOLEAN DEFAULT false,
+        blocked_guides JSONB DEFAULT '[]'::jsonb,
+        allowed_guides JSONB DEFAULT '[]'::jsonb
       );
     `;
+
+    try {
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT false;`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_guides JSONB DEFAULT '[]'::jsonb;`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_guides JSONB DEFAULT '[]'::jsonb;`;
+      await sql`ALTER TABLE report_schemas ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false;`;
+    } catch (colErr) {
+      console.warn("Table alter check:", colErr);
+    }
     await sql`
       CREATE TABLE IF NOT EXISTS audit_tratativas (
         id TEXT PRIMARY KEY,
@@ -192,7 +207,11 @@ async function initDb() {
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_audit_tratativas_date ON audit_tratativas(date_str);
+    `;
+    await sql`
       CREATE INDEX IF NOT EXISTS idx_audit_tratativas_user ON audit_tratativas(username);
+    `;
+    await sql`
       CREATE INDEX IF NOT EXISTS idx_audit_tratativas_report ON audit_tratativas(report_id);
     `;
     await sql`
@@ -268,9 +287,10 @@ async function logTratativa(entry: {
 
   try {
     const detailsJson = JSON.stringify(entry.details || {});
+    const nowIso = now.toISOString();
     await sql`
       INSERT INTO audit_tratativas (id, created_at, date_str, username, user_role, report_id, record_id, client_name, client_cpf, action_type, details)
-      VALUES (${id}, ${now}, ${dateStr}, ${payload.username}, ${payload.userRole}, ${payload.reportId}, ${payload.recordId}, ${payload.clientName}, ${payload.clientCpf}, ${payload.actionType}, ${detailsJson}::jsonb)
+      VALUES (${id}, ${nowIso}, ${dateStr}, ${payload.username}, ${payload.userRole}, ${payload.reportId}, ${payload.recordId}, ${payload.clientName}, ${payload.clientCpf}, ${payload.actionType}, ${detailsJson}::jsonb)
     `;
   } catch (err) {
     console.warn("Direct DB write for tratativa failed, storing in cache", err);
@@ -341,9 +361,10 @@ async function executeDatabaseBackup(type: 'AUTOMATIC_DAILY' | 'MANUAL' = 'AUTOM
 
     // Save to PostgreSQL database_backups table
     try {
+      const nowIso = now.toISOString();
       await sql`
         INSERT INTO database_backups (id, created_at, date_str, backup_type, total_schemas, total_records, file_size_bytes, schemas_summary, snapshot_data, status)
-        VALUES (${id}, ${now}, ${dateStr}, ${type}, ${allSchemas.length}, ${allRecords.length}, ${fileSizeBytes}, ${summaryJson}::jsonb, ${snapshotJson}::jsonb, 'SUCCESS')
+        VALUES (${id}, ${nowIso}, ${dateStr}, ${type}, ${allSchemas.length}, ${allRecords.length}, ${fileSizeBytes}, ${summaryJson}::jsonb, ${snapshotJson}::jsonb, 'SUCCESS')
       `;
     } catch (dbErr) {
       console.warn("Failed to write backup record to DB, writing to file & cache", dbErr);
@@ -430,9 +451,15 @@ app.use(express.json({ limit: '50mb' }));
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
-    let user;
+    let user: any;
     try {
-      const found = await db.select().from(users).where(eq(users.username, username));
+      const found = await sql`
+        SELECT id, username, password, role, is_blocked as "isBlocked", 
+               blocked_guides as "blockedGuides", allowed_guides as "allowedGuides"
+        FROM users 
+        WHERE LOWER(username) = LOWER(${username})
+        LIMIT 1
+      `;
       user = found[0];
     } catch (dbErr) {
       // Secondary login source check
@@ -446,7 +473,24 @@ app.post("/api/auth/login", async (req, res) => {
     if (user.password !== password) {
       return res.status(401).json({ error: "Senha incorreta" });
     }
-    res.json({ success: true, username: user.username, role: user.role });
+
+    // Check if user is blocked by Administrator (Admin cannot be blocked)
+    const isUserBlocked = user.role !== 'admin' && (user.isBlocked === true || user.is_blocked === true);
+    if (isUserBlocked) {
+      return res.status(403).json({ 
+        error: "Acesso Bloqueado: Seu acesso ao sistema e às guias foi temporariamente bloqueado pelo Administrador." 
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      id: user.id,
+      username: user.username, 
+      role: user.role,
+      isBlocked: false,
+      blockedGuides: user.blockedGuides || user.blocked_guides || [],
+      allowedGuides: user.allowedGuides || user.allowed_guides || []
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro no login" });
@@ -458,7 +502,12 @@ app.get("/api/users", async (req, res) => {
   try {
     let allUsers;
     try {
-      allUsers = await db.select().from(users);
+      allUsers = await sql`
+        SELECT id, username, role, is_blocked as "isBlocked",
+               blocked_guides as "blockedGuides", allowed_guides as "allowedGuides"
+        FROM users
+        ORDER BY CASE WHEN role = 'admin' THEN 1 WHEN role = 'viewer' THEN 2 ELSE 3 END, username ASC
+      `;
     } catch (dbErr) {
       // Secondary user data load
       const cache = loadFallbackData();
@@ -473,21 +522,55 @@ app.get("/api/users", async (req, res) => {
 
 app.post("/api/users", async (req, res) => {
   try {
-    const { id, username, password, role } = req.body;
+    const { id, username, password, role, isBlocked, blockedGuides, allowedGuides } = req.body;
     const userId = id || `user-${Date.now()}`;
+    const safeIsBlocked = username.toLowerCase() === 'admin' ? false : Boolean(isBlocked);
+    const safeBlockedGuides = Array.isArray(blockedGuides) ? blockedGuides : [];
+    const safeAllowedGuides = Array.isArray(allowedGuides) ? allowedGuides : [];
+
     let dbSuccess = false;
     try {
-      await db.insert(users).values({ id: userId, username, password, role })
-        .onConflictDoUpdate({ target: users.username, set: { password, role } });
+      const blockedJson = JSON.stringify(safeBlockedGuides);
+      const allowedJson = JSON.stringify(safeAllowedGuides);
+      if (password) {
+        await sql`
+          INSERT INTO users (id, username, password, role, is_blocked, blocked_guides, allowed_guides)
+          VALUES (${userId}, ${username}, ${password}, ${role}, ${safeIsBlocked}, ${blockedJson}::jsonb, ${allowedJson}::jsonb)
+          ON CONFLICT (username) DO UPDATE SET
+            password = EXCLUDED.password,
+            role = EXCLUDED.role,
+            is_blocked = EXCLUDED.is_blocked,
+            blocked_guides = EXCLUDED.blocked_guides,
+            allowed_guides = EXCLUDED.allowed_guides
+        `;
+      } else {
+        await sql`
+          UPDATE users
+          SET role = ${role},
+              is_blocked = ${safeIsBlocked},
+              blocked_guides = ${blockedJson}::jsonb,
+              allowed_guides = ${allowedJson}::jsonb
+          WHERE id = ${userId} OR LOWER(username) = LOWER(${username})
+        `;
+      }
       dbSuccess = true;
     } catch (dbErr) {
-      // Secondary user write executed
+      console.warn("User DB save error, writing to cache", dbErr);
     }
 
     // Update Cache
     const cache = loadFallbackData();
-    const existingIndex = cache.users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
-    const userToSave = { id: userId, username, password, role };
+    const existingIndex = cache.users.findIndex(u => u.username.toLowerCase() === username.toLowerCase() || u.id === userId);
+    const existing = existingIndex >= 0 ? cache.users[existingIndex] : {};
+    const userToSave = {
+      id: userId,
+      username,
+      password: password || existing.password || '123456',
+      role,
+      isBlocked: safeIsBlocked,
+      blockedGuides: safeBlockedGuides,
+      allowedGuides: safeAllowedGuides
+    };
     if (existingIndex >= 0) {
       cache.users[existingIndex] = userToSave;
     } else {
@@ -499,6 +582,93 @@ app.post("/api/users", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save user" });
+  }
+});
+
+// Fast 1-click toggle user block status
+app.patch("/api/users/:id/toggle-block", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isBlocked } = req.body;
+
+    let targetUser: any = null;
+    try {
+      const rows = await sql`SELECT id, username, role, is_blocked as "isBlocked" FROM users WHERE id = ${id}`;
+      if (rows && rows.length > 0) {
+        targetUser = rows[0];
+      }
+    } catch (e) {}
+
+    const cache = loadFallbackData();
+    const cacheIdx = cache.users.findIndex(u => u.id === id);
+    if (!targetUser && cacheIdx >= 0) {
+      targetUser = cache.users[cacheIdx];
+    }
+
+    if (!targetUser) {
+      return res.status(404).json({ error: "Usuário não encontrado" });
+    }
+
+    if (targetUser.role === 'admin' || targetUser.username.toLowerCase() === 'admin') {
+      return res.status(400).json({ error: "O Administrador principal não pode ser bloqueado." });
+    }
+
+    const newBlockedState = isBlocked !== undefined ? Boolean(isBlocked) : !targetUser.isBlocked;
+
+    try {
+      await sql`UPDATE users SET is_blocked = ${newBlockedState} WHERE id = ${id}`;
+    } catch (e) {}
+
+    if (cacheIdx >= 0) {
+      cache.users[cacheIdx].isBlocked = newBlockedState;
+      saveFallbackData(cache);
+    }
+
+    res.json({ success: true, id, isBlocked: newBlockedState });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to toggle user block status" });
+  }
+});
+
+// Bulk block all operators
+app.post("/api/users/block-all-operators", async (req, res) => {
+  try {
+    try {
+      await sql`UPDATE users SET is_blocked = true WHERE role != 'admin' AND LOWER(username) != 'admin'`;
+    } catch (e) {}
+
+    const cache = loadFallbackData();
+    cache.users = cache.users.map(u => {
+      if (u.role !== 'admin' && u.username.toLowerCase() !== 'admin') {
+        return { ...u, isBlocked: true };
+      }
+      return u;
+    });
+    saveFallbackData(cache);
+
+    res.json({ success: true, message: "Todos os operadores e visualizadores foram bloqueados." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to block all operators" });
+  }
+});
+
+// Bulk unblock all operators
+app.post("/api/users/unblock-all-operators", async (req, res) => {
+  try {
+    try {
+      await sql`UPDATE users SET is_blocked = false`;
+    } catch (e) {}
+
+    const cache = loadFallbackData();
+    cache.users = cache.users.map(u => ({ ...u, isBlocked: false }));
+    saveFallbackData(cache);
+
+    res.json({ success: true, message: "Todos os operadores e visualizadores foram desbloqueados." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to unblock all operators" });
   }
 });
 
@@ -531,13 +701,14 @@ app.get("/api/schemas", async (req, res) => {
     let allSchemas;
     try {
       allSchemas = await sql`
-        SELECT id, name, fields
+        SELECT id, name, fields, COALESCE(is_locked, false) as "isLocked"
         FROM report_schemas
         ORDER BY name ASC
       `;
       // Ensure fields is parsed if string
       allSchemas = allSchemas.map(s => ({
         ...s,
+        isLocked: Boolean(s.isLocked),
         fields: typeof s.fields === 'string' ? JSON.parse(s.fields) : s.fields
       }));
     } catch (dbErr) {
@@ -556,20 +727,22 @@ app.get("/api/schemas", async (req, res) => {
 
 app.post("/api/schemas", async (req, res) => {
   try {
-    const { id, name, fields } = req.body;
+    const { id, name, fields, isLocked } = req.body;
     if (!id || !name || !fields) {
       return res.status(400).json({ error: "Missing required schema fields" });
     }
 
+    const safeIsLocked = Boolean(isLocked);
     let dbSuccess = false;
     try {
       const fieldsJson = JSON.stringify(fields);
       await sql`
-        INSERT INTO report_schemas (id, name, fields)
-        VALUES (${id}, ${name}, ${fieldsJson}::jsonb)
+        INSERT INTO report_schemas (id, name, fields, is_locked)
+        VALUES (${id}, ${name}, ${fieldsJson}::jsonb, ${safeIsLocked})
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
-          fields = EXCLUDED.fields
+          fields = EXCLUDED.fields,
+          is_locked = EXCLUDED.is_locked
       `;
       dbSuccess = true;
     } catch (dbErr) {
@@ -579,7 +752,7 @@ app.post("/api/schemas", async (req, res) => {
     // Update Fallback Cache
     const cache = loadFallbackData();
     const existingIndex = cache.schemas.findIndex(s => s.id === id);
-    const schemaToSave = { id, name, fields };
+    const schemaToSave = { id, name, fields, isLocked: safeIsLocked };
     if (existingIndex >= 0) {
       cache.schemas[existingIndex] = schemaToSave;
     } else {
@@ -591,6 +764,40 @@ app.post("/api/schemas", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save schema" });
+  }
+});
+
+// Toggle Guide Lock for non-admin users
+app.patch("/api/schemas/:id/toggle-lock", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isLocked } = req.body;
+
+    let currentLocked = false;
+    try {
+      const rows = await sql`SELECT id, is_locked as "isLocked" FROM report_schemas WHERE id = ${id}`;
+      if (rows && rows.length > 0) {
+        currentLocked = Boolean(rows[0].isLocked);
+      }
+    } catch (e) {}
+
+    const nextLocked = isLocked !== undefined ? Boolean(isLocked) : !currentLocked;
+
+    try {
+      await sql`UPDATE report_schemas SET is_locked = ${nextLocked} WHERE id = ${id}`;
+    } catch (e) {}
+
+    const cache = loadFallbackData();
+    const idx = cache.schemas.findIndex(s => s.id === id);
+    if (idx >= 0) {
+      cache.schemas[idx].isLocked = nextLocked;
+      saveFallbackData(cache);
+    }
+
+    res.json({ success: true, id, isLocked: nextLocked });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to toggle schema lock" });
   }
 });
 
