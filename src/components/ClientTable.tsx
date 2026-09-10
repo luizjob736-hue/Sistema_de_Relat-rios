@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash, Calendar, CalendarDays, Clock, X, Check } from "lucide-react";
+import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash, Calendar, CalendarDays, Clock, X, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
 import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized, fixMojibake, getRecordStatus, calculateExecutiveStatusSummary, normalizeDateStringToISO, formatISODateToBR, extractRecordFillingDates, getTodayISODate, getYesterdayISODate } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
@@ -42,6 +42,7 @@ export function ClientTable({
   const [bulkEdits, setBulkEdits] = useState<Record<string, string>>({});
   const [countDateFilter, setCountDateFilter] = useState<string>("all");
   const [filterTableByCountDate, setFilterTableByCountDate] = useState<boolean>(false);
+  const [isCountPanelExpanded, setIsCountPanelExpanded] = useState<boolean>(true);
 
   const rowsPerPage = 50;
 
@@ -428,212 +429,221 @@ export function ClientTable({
 
   return (
     <div className="flex flex-col h-full bg-[#E4E3E0]">
-      {/* Contagem (Observação Final) com Filtro por Dia de Preenchimento */}
-      <div className="bg-white border-b-2 border-[#141414] p-3 shrink-0">
+      {/* Contagem (Observação Final) com Filtro por Dia de Preenchimento - Compacta para não atrapalhar */}
+      <div className="bg-white border-b-2 border-[#141414] px-2.5 py-1.5 shrink-0">
         <div className="w-full">
-          {/* Tabela de Observação Final */}
-          <div className="bg-[#F2F1EB] p-3 border-2 border-[#141414] shadow-[2px_2px_0px_rgba(0,0,0,1)] flex flex-col min-h-[175px] max-h-72">
+          {/* Container Compacto de Observação Final */}
+          <div className="bg-[#F2F1EB] p-2 border border-[#141414] shadow-[1px_1px_0px_rgba(0,0,0,1)] flex flex-col transition-all">
             
-            {/* Top Bar: Título & Ações Principais */}
-            <div className="flex flex-wrap justify-between items-center gap-2 mb-2 pb-1.5 border-b border-[#141414] shrink-0">
-              <div className="flex items-center gap-2">
-                <BarChart3 size={15} className="text-[#141414]" />
-                <h3 className="text-xs font-black uppercase tracking-wider text-[#141414]">
-                  Contagem (Observação Final) — {schema.name}
-                </h3>
-              </div>
+            {/* Top Bar: Título & Ações Principais Compactas */}
+            <div className="flex flex-wrap justify-between items-center gap-1.5 pb-1 border-b border-[#141414]/70 shrink-0">
               <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsCountPanelExpanded(prev => !prev)}
+                  className="flex items-center gap-1 text-[#141414] hover:text-black cursor-pointer select-none font-black text-[11px] uppercase tracking-wider"
+                  title={isCountPanelExpanded ? "Recolher painel de contagem" : "Expandir painel de contagem"}
+                >
+                  <BarChart3 size={13} className="text-[#141414]" />
+                  <span>Contagem (Obs. Final) — {schema.name}</span>
+                  {isCountPanelExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                </button>
+                <span className="text-[10px] font-mono font-bold bg-[#141414] text-white px-1.5 py-0.2 rounded-none">
+                  Total: {observacaoBreakdown.total}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
                 {canEdit && (
                   <button
                     onClick={() => setIsStatusConfigOpen(true)}
-                    className="flex items-center gap-1 px-2 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
+                    className="flex items-center gap-1 px-1.5 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
                     title="Gerenciar motivos e submotivos do status"
                   >
-                    <Settings2 size={11} />
-                    <span>Configurar Status</span>
+                    <Settings2 size={10} />
+                    <span>Configurar</span>
                   </button>
                 )}
                 <button
                   onClick={copyObsTable}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-white border border-[#141414] text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
                   title="Copiar dados da contagem formatados para área de transferência"
                 >
-                  <ClipboardCopy size={11} />
-                  <span>{copyFeedback || "Copiar Tabela"}</span>
+                  <ClipboardCopy size={10} />
+                  <span>{copyFeedback || "Copiar"}</span>
                 </button>
               </div>
             </div>
 
-            {/* Toolbar de Filtro por Data de Preenchimento / Produtividade Diária */}
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-2 py-1.5 bg-white border border-[#141414] text-xs shrink-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-1">
-                  <Calendar size={12} className="text-[#141414]" />
-                  Data de Preenchimento:
-                </span>
-
-                {/* Botão: Geral (Todas as Datas) */}
-                <button
-                  type="button"
-                  onClick={() => setCountDateFilter("all")}
-                  className={`px-2 py-0.5 text-[10px] font-mono font-bold uppercase transition-all border cursor-pointer ${
-                    countDateFilter === "all"
-                      ? "bg-[#141414] text-white border-[#141414]"
-                      : "bg-[#F2F1EB] text-slate-800 border-[#141414] hover:bg-slate-200"
-                  }`}
-                >
-                  Todas (Geral)
-                </button>
-
-                {/* Botão Rápido: Hoje */}
-                <button
-                  type="button"
-                  onClick={() => setCountDateFilter(availableDatesData.todayISO)}
-                  className={`px-2 py-0.5 text-[10px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
-                    countDateFilter === availableDatesData.todayISO
-                      ? "bg-emerald-800 text-white border-emerald-950"
-                      : "bg-emerald-50 text-emerald-900 border-emerald-800 hover:bg-emerald-100"
-                  }`}
-                >
-                  <span>Hoje ({formatISODateToBR(availableDatesData.todayISO)})</span>
-                  {availableDatesData.todayCount > 0 && (
-                    <span className="text-[9px] bg-emerald-700/40 text-emerald-950 px-1 rounded-xs font-bold">
-                      {availableDatesData.todayCount}
+            {isCountPanelExpanded && (
+              <>
+                {/* Toolbar de Filtro por Data de Preenchimento / Produtividade Diária Compacta */}
+                <div className="flex flex-wrap items-center justify-between gap-1.5 my-1 px-1.5 py-1 bg-white border border-[#141414] text-xs shrink-0">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-0.5 mr-0.5">
+                      <Calendar size={11} className="text-[#141414]" />
+                      Data:
                     </span>
-                  )}
-                </button>
 
-                {/* Botão Rápido: Ontem */}
-                <button
-                  type="button"
-                  onClick={() => setCountDateFilter(availableDatesData.yesterdayISO)}
-                  className={`px-2 py-0.5 text-[10px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
-                    countDateFilter === availableDatesData.yesterdayISO
-                      ? "bg-slate-800 text-white border-slate-950"
-                      : "bg-[#F2F1EB] text-slate-700 border-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  <span>Ontem</span>
-                  {availableDatesData.yesterdayCount > 0 && (
-                    <span className="text-[9px] bg-slate-300 text-slate-800 px-1 rounded-xs font-bold">
-                      {availableDatesData.yesterdayCount}
-                    </span>
-                  )}
-                </button>
+                    {/* Botão: Geral (Todas as Datas) */}
+                    <button
+                      type="button"
+                      onClick={() => setCountDateFilter("all")}
+                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border cursor-pointer ${
+                        countDateFilter === "all"
+                          ? "bg-[#141414] text-white border-[#141414]"
+                          : "bg-[#F2F1EB] text-slate-800 border-[#141414] hover:bg-slate-200"
+                      }`}
+                    >
+                      Todas
+                    </button>
 
-                {/* Dropdown de Todas as Datas Detectadas */}
-                <div className="flex items-center gap-1">
-                  <select
-                    value={countDateFilter}
-                    onChange={(e) => setCountDateFilter(e.target.value)}
-                    className="bg-[#F2F1EB] border border-[#141414] text-[10px] font-mono font-bold px-1.5 py-0.5 outline-none text-[#141414] cursor-pointer"
-                  >
-                    <option value="all">Outras datas ({availableDatesData.dates.length} disponíveis)...</option>
-                    {availableDatesData.dates.map((d) => (
-                      <option key={`date_opt_${d}`} value={d}>
-                        {formatISODateToBR(d)} ({availableDatesData.dateCounts[d]} clientes)
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    {/* Botão Rápido: Hoje */}
+                    <button
+                      type="button"
+                      onClick={() => setCountDateFilter(availableDatesData.todayISO)}
+                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
+                        countDateFilter === availableDatesData.todayISO
+                          ? "bg-emerald-800 text-white border-emerald-950"
+                          : "bg-emerald-50 text-emerald-900 border-emerald-800 hover:bg-emerald-100"
+                      }`}
+                    >
+                      <span>Hoje ({formatISODateToBR(availableDatesData.todayISO)})</span>
+                      {availableDatesData.todayCount > 0 && (
+                        <span className="text-[8px] bg-emerald-700/30 text-emerald-950 px-1 rounded-none font-bold">
+                          {availableDatesData.todayCount}
+                        </span>
+                      )}
+                    </button>
 
-                {/* Seletor Livre de Calendário */}
-                <div className="flex items-center gap-1">
-                  <input
-                    type="date"
-                    value={countDateFilter !== "all" ? countDateFilter : ""}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setCountDateFilter(e.target.value);
-                      }
-                    }}
-                    className="bg-white border border-[#141414] text-[10px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[115px]"
-                    title="Selecionar qualquer data no calendário"
-                  />
-                </div>
-              </div>
+                    {/* Botão Rápido: Ontem */}
+                    <button
+                      type="button"
+                      onClick={() => setCountDateFilter(availableDatesData.yesterdayISO)}
+                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
+                        countDateFilter === availableDatesData.yesterdayISO
+                          ? "bg-slate-800 text-white border-slate-950"
+                          : "bg-[#F2F1EB] text-slate-700 border-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      <span>Ontem</span>
+                      {availableDatesData.yesterdayCount > 0 && (
+                        <span className="text-[8px] bg-slate-300 text-slate-800 px-1 rounded-none font-bold">
+                          {availableDatesData.yesterdayCount}
+                        </span>
+                      )}
+                    </button>
 
-              {/* Opção de sincronizar e filtrar a listagem principal pela data selecionada */}
-              <div className="flex items-center gap-2">
-                {countDateFilter !== "all" && (
-                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-800 select-none bg-amber-50 px-1.5 py-0.5 border border-amber-800">
+                    {/* Dropdown de Todas as Datas Detectadas */}
+                    <select
+                      value={countDateFilter}
+                      onChange={(e) => setCountDateFilter(e.target.value)}
+                      className="bg-[#F2F1EB] border border-[#141414] text-[9px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[130px]"
+                    >
+                      <option value="all">Outras ({availableDatesData.dates.length})...</option>
+                      {availableDatesData.dates.map((d) => (
+                        <option key={`date_opt_${d}`} value={d}>
+                          {formatISODateToBR(d)} ({availableDatesData.dateCounts[d]})
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Seletor Livre de Calendário */}
                     <input
-                      type="checkbox"
-                      checked={filterTableByCountDate}
-                      onChange={(e) => setFilterTableByCountDate(e.target.checked)}
-                      className="rounded-none border border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-3 w-3"
-                    />
-                    <span>Filtrar tabela abaixo por este dia</span>
-                  </label>
-                )}
-
-                {countDateFilter !== "all" && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCountDateFilter("all");
-                      setFilterTableByCountDate(false);
-                    }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 bg-rose-100 border border-rose-900 text-rose-950 text-[10px] font-bold hover:bg-rose-200 transition-colors cursor-pointer"
-                    title="Voltar para contagem geral de todas as datas"
-                  >
-                    <X size={10} />
-                    <span>Limpar data</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Indicador de Status do Filtro de Data Ativo */}
-            {observacaoBreakdown.targetDateISO && (
-              <div className="mb-1.5 px-2 py-0.5 bg-emerald-50 border border-emerald-800 text-[10px] font-mono font-bold text-emerald-950 flex items-center justify-between">
-                <span>
-                  ★ Produtividade de <strong>{observacaoBreakdown.dateFormatted}</strong>: {observacaoBreakdown.total} ações registradas ({observacaoBreakdown.treatedClientsCount} clientes trabalhados)
-                </span>
-                {filterTableByCountDate && (
-                  <span className="text-[9px] text-emerald-800 uppercase tracking-wider">
-                    [Tabela de clientes filtrada]
-                  </span>
-                )}
-              </div>
-            )}
-            
-            {/* Tabela de Contagem */}
-            <div className="flex-1 overflow-y-auto border border-[#141414] bg-white">
-              <table className="w-full text-xs text-left font-sans">
-                <thead className="bg-[#E4E3E0] text-[#141414] text-[10px] uppercase font-bold border-b border-[#141414] sticky top-0 z-10">
-                  <tr>
-                    <th className="px-2.5 py-1.5 border-r border-[#141414]">Observação Final</th>
-                    <th className="px-2.5 py-1.5 w-24 text-right">Qtd.</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 text-xs">
-                  {observacaoBreakdown.counts.length > 0 && observacaoBreakdown.counts.map((item, idx) => (
-                    <tr key={`obs_${item.label}_${idx}`} className="hover:bg-[#F9F8F6] transition-colors">
-                      <td className="px-2.5 py-1 font-medium text-slate-800">{item.label}</td>
-                      <td className="px-2.5 py-1 text-right font-mono font-bold text-slate-900">{item.count}</td>
-                    </tr>
-                  ))}
-                  {observacaoBreakdown.counts.length === 0 && (
-                    <tr key="empty-obs">
-                      <td colSpan={2} className="px-2.5 py-3 text-center text-slate-500 italic text-xs">
-                        {observacaoBreakdown.targetDateISO 
-                          ? `Nenhum preenchimento de observação final encontrado para a data ${observacaoBreakdown.dateFormatted}.`
-                          : "Nenhuma observação preenchida."
+                      type="date"
+                      value={countDateFilter !== "all" ? countDateFilter : ""}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setCountDateFilter(e.target.value);
                         }
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                      }}
+                      className="bg-white border border-[#141414] text-[9px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[105px]"
+                      title="Selecionar qualquer data no calendário"
+                    />
+                  </div>
 
-            <div className="bg-[#E4E3E0] font-bold border-2 border-t-0 border-[#141414] text-xs flex justify-between px-2.5 py-1.5 shrink-0">
-              <span className="uppercase text-[10px] font-bold tracking-wider">
-                {observacaoBreakdown.targetDateISO ? `Total em ${observacaoBreakdown.dateFormatted}` : "Total Geral"}
-              </span>
-              <span className="font-mono font-bold">{observacaoBreakdown.total}</span>
-            </div>
+                  {/* Opção de sincronizar e filtrar a listagem principal pela data selecionada */}
+                  <div className="flex items-center gap-1.5">
+                    {countDateFilter !== "all" && (
+                      <label className="flex items-center gap-1 cursor-pointer text-[9px] font-bold text-slate-800 select-none bg-amber-50 px-1 py-0.5 border border-amber-800">
+                        <input
+                          type="checkbox"
+                          checked={filterTableByCountDate}
+                          onChange={(e) => setFilterTableByCountDate(e.target.checked)}
+                          className="rounded-none border border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-2.5 w-2.5"
+                        />
+                        <span>Filtrar tabela abaixo</span>
+                      </label>
+                    )}
+
+                    {countDateFilter !== "all" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCountDateFilter("all");
+                          setFilterTableByCountDate(false);
+                        }}
+                        className="flex items-center gap-0.5 px-1 py-0.5 bg-rose-100 border border-rose-900 text-rose-950 text-[9px] font-bold hover:bg-rose-200 transition-colors cursor-pointer"
+                        title="Voltar para contagem geral de todas as datas"
+                      >
+                        <X size={9} />
+                        <span>Limpar</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Indicador de Status do Filtro de Data Ativo */}
+                {observacaoBreakdown.targetDateISO && (
+                  <div className="mb-1 px-1.5 py-0.5 bg-emerald-50 border border-emerald-800 text-[9px] font-mono font-bold text-emerald-950 flex items-center justify-between">
+                    <span>
+                      ★ Produtividade de <strong>{observacaoBreakdown.dateFormatted}</strong>: {observacaoBreakdown.total} ações ({observacaoBreakdown.treatedClientsCount} clientes)
+                    </span>
+                    {filterTableByCountDate && (
+                      <span className="text-[8px] text-emerald-800 uppercase tracking-wider">
+                        [Tabela Filtrada]
+                      </span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Tabela de Contagem Reduzida com Scroll Suave */}
+                <div className="max-h-32 sm:max-h-36 overflow-y-auto border border-[#141414] bg-white">
+                  <table className="w-full text-[11px] text-left font-sans">
+                    <thead className="bg-[#E4E3E0] text-[#141414] text-[9px] uppercase font-bold border-b border-[#141414] sticky top-0 z-10">
+                      <tr>
+                        <th className="px-2 py-1 border-r border-[#141414]">Observação Final</th>
+                        <th className="px-2 py-1 w-20 text-right">Qtd.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {observacaoBreakdown.counts.length > 0 && observacaoBreakdown.counts.map((item, idx) => (
+                        <tr key={`obs_${item.label}_${idx}`} className="hover:bg-[#F9F8F6] transition-colors">
+                          <td className="px-2 py-0.5 font-medium text-slate-800 text-[11px]">{item.label}</td>
+                          <td className="px-2 py-0.5 text-right font-mono font-bold text-slate-900 text-[11px]">{item.count}</td>
+                        </tr>
+                      ))}
+                      {observacaoBreakdown.counts.length === 0 && (
+                        <tr key="empty-obs">
+                          <td colSpan={2} className="px-2 py-2 text-center text-slate-500 italic text-[10px]">
+                            {observacaoBreakdown.targetDateISO 
+                              ? `Nenhum preenchimento para ${observacaoBreakdown.dateFormatted}.`
+                              : "Nenhuma observação preenchida."
+                            }
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="bg-[#E4E3E0] font-bold border border-t-0 border-[#141414] text-[10px] flex justify-between px-2 py-1 shrink-0">
+                  <span className="uppercase font-bold tracking-wider">
+                    {observacaoBreakdown.targetDateISO ? `Total em ${observacaoBreakdown.dateFormatted}` : "Total Geral"}
+                  </span>
+                  <span className="font-mono font-bold">{observacaoBreakdown.total}</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
