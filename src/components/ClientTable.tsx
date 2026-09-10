@@ -296,7 +296,6 @@ export function ClientTable({
 
   const observacaoBreakdown = useMemo(() => {
     const allReportRecords = getReportRecords(records, schema?.id || '');
-    const activeReportRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
     const obsField = fields.find(f => f.id === 'observacaoFinal' || f.label.toLowerCase().includes('observa'));
     
     if (!obsField) return { counts: [], total: 0, targetDateISO: null, dateFormatted: null, treatedClientsCount: 0 };
@@ -304,11 +303,11 @@ export function ClientTable({
     const targetDateISO = countDateFilter !== 'all' ? normalizeDateStringToISO(countDateFilter) : null;
 
     const recordsToAnalyze = targetDateISO
-      ? activeReportRecords.filter(r => {
+      ? allReportRecords.filter(r => {
           const dates = extractRecordFillingDates(r);
           return dates.includes(targetDateISO);
         })
-      : activeReportRecords;
+      : allReportRecords;
 
     const counts: Record<string, number> = {};
     let total = 0;
@@ -329,7 +328,10 @@ export function ClientTable({
       total, 
       targetDateISO,
       dateFormatted: targetDateISO ? formatISODateToBR(targetDateISO) : null,
-      treatedClientsCount: recordsToAnalyze.length
+      treatedClientsCount: recordsToAnalyze.filter(r => {
+        const v = getCellValue(r.data, obsField);
+        return v && v !== '-' && v.trim() !== '';
+      }).length
     };
   }, [records, schema?.id, fields, countDateFilter]);
 
