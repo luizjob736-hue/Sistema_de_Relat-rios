@@ -458,8 +458,8 @@ export function ClientTable({
                   Total: {observacaoBreakdown.total}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
-                {canEdit && (
+              {isAdmin && (
+                <div className="flex items-center gap-1">
                   <button
                     onClick={() => setIsStatusConfigOpen(true)}
                     className="flex items-center gap-1 px-1.5 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
@@ -468,138 +468,140 @@ export function ClientTable({
                     <Settings2 size={10} />
                     <span>Configurar</span>
                   </button>
-                )}
-                <button
-                  onClick={copyObsTable}
-                  className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
-                  title="Copiar dados da contagem formatados para área de transferência"
-                >
-                  <ClipboardCopy size={10} />
-                  <span>{copyFeedback || "Copiar"}</span>
-                </button>
-              </div>
+                  <button
+                    onClick={copyObsTable}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#141414] text-[#141414] text-[9px] font-bold uppercase hover:bg-[#141414] hover:text-white transition-all active:translate-y-0.5 cursor-pointer"
+                    title="Copiar dados da contagem formatados para área de transferência"
+                  >
+                    <ClipboardCopy size={10} />
+                    <span>{copyFeedback || "Copiar"}</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {isCountPanelExpanded && (
               <>
-                {/* Toolbar de Filtro por Data de Preenchimento / Produtividade Diária Compacta */}
-                <div className="flex flex-wrap items-center justify-between gap-1.5 my-1 px-1.5 py-1 bg-white border border-[#141414] text-xs shrink-0">
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-0.5 mr-0.5">
-                      <Calendar size={11} className="text-[#141414]" />
-                      Data:
-                    </span>
+                {/* Toolbar de Filtro por Data de Preenchimento / Produtividade Diária Compacta (Apenas Administrador) */}
+                {isAdmin && (
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 my-1 px-1.5 py-1 bg-white border border-[#141414] text-xs shrink-0">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-0.5 mr-0.5">
+                        <Calendar size={11} className="text-[#141414]" />
+                        Data:
+                      </span>
 
-                    {/* Botão: Geral (Todas as Datas) */}
-                    <button
-                      type="button"
-                      onClick={() => setCountDateFilter("all")}
-                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border cursor-pointer ${
-                        countDateFilter === "all"
-                          ? "bg-[#141414] text-white border-[#141414]"
-                          : "bg-[#F2F1EB] text-slate-800 border-[#141414] hover:bg-slate-200"
-                      }`}
-                    >
-                      Todas
-                    </button>
-
-                    {/* Botão Rápido: Hoje */}
-                    <button
-                      type="button"
-                      onClick={() => setCountDateFilter(availableDatesData.todayISO)}
-                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
-                        countDateFilter === availableDatesData.todayISO
-                          ? "bg-emerald-800 text-white border-emerald-950"
-                          : "bg-emerald-50 text-emerald-900 border-emerald-800 hover:bg-emerald-100"
-                      }`}
-                    >
-                      <span>Hoje ({formatISODateToBR(availableDatesData.todayISO)})</span>
-                      {availableDatesData.todayCount > 0 && (
-                        <span className="text-[8px] bg-emerald-700/30 text-emerald-950 px-1 rounded-none font-bold">
-                          {availableDatesData.todayCount}
-                        </span>
-                      )}
-                    </button>
-
-                    {/* Botão Rápido: Ontem */}
-                    <button
-                      type="button"
-                      onClick={() => setCountDateFilter(availableDatesData.yesterdayISO)}
-                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
-                        countDateFilter === availableDatesData.yesterdayISO
-                          ? "bg-slate-800 text-white border-slate-950"
-                          : "bg-[#F2F1EB] text-slate-700 border-slate-700 hover:bg-slate-200"
-                      }`}
-                    >
-                      <span>Ontem</span>
-                      {availableDatesData.yesterdayCount > 0 && (
-                        <span className="text-[8px] bg-slate-300 text-slate-800 px-1 rounded-none font-bold">
-                          {availableDatesData.yesterdayCount}
-                        </span>
-                      )}
-                    </button>
-
-                    {/* Dropdown de Todas as Datas Detectadas */}
-                    <select
-                      value={countDateFilter}
-                      onChange={(e) => setCountDateFilter(e.target.value)}
-                      className="bg-[#F2F1EB] border border-[#141414] text-[9px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[130px]"
-                    >
-                      <option value="all">Outras ({availableDatesData.dates.length})...</option>
-                      {availableDatesData.dates.map((d) => (
-                        <option key={`date_opt_${d}`} value={d}>
-                          {formatISODateToBR(d)} ({availableDatesData.dateCounts[d]})
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Seletor Livre de Calendário */}
-                    <input
-                      type="date"
-                      value={countDateFilter !== "all" ? countDateFilter : ""}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setCountDateFilter(e.target.value);
-                        }
-                      }}
-                      className="bg-white border border-[#141414] text-[9px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[105px]"
-                      title="Selecionar qualquer data no calendário"
-                    />
-                  </div>
-
-                  {/* Opção de sincronizar e filtrar a listagem principal pela data selecionada */}
-                  <div className="flex items-center gap-1.5">
-                    {countDateFilter !== "all" && (
-                      <label className="flex items-center gap-1 cursor-pointer text-[9px] font-bold text-slate-800 select-none bg-amber-50 px-1 py-0.5 border border-amber-800">
-                        <input
-                          type="checkbox"
-                          checked={filterTableByCountDate}
-                          onChange={(e) => setFilterTableByCountDate(e.target.checked)}
-                          className="rounded-none border border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-2.5 w-2.5"
-                        />
-                        <span>Filtrar tabela abaixo</span>
-                      </label>
-                    )}
-
-                    {countDateFilter !== "all" && (
+                      {/* Botão: Geral (Todas as Datas) */}
                       <button
                         type="button"
-                        onClick={() => {
-                          setCountDateFilter("all");
-                          setFilterTableByCountDate(false);
-                        }}
-                        className="flex items-center gap-0.5 px-1 py-0.5 bg-rose-100 border border-rose-900 text-rose-950 text-[9px] font-bold hover:bg-rose-200 transition-colors cursor-pointer"
-                        title="Voltar para contagem geral de todas as datas"
+                        onClick={() => setCountDateFilter("all")}
+                        className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border cursor-pointer ${
+                          countDateFilter === "all"
+                            ? "bg-[#141414] text-white border-[#141414]"
+                            : "bg-[#F2F1EB] text-slate-800 border-[#141414] hover:bg-slate-200"
+                        }`}
                       >
-                        <X size={9} />
-                        <span>Limpar</span>
+                        Todas
                       </button>
-                    )}
-                  </div>
-                </div>
 
-                {/* Indicador de Status do Filtro de Data Ativo */}
-                {observacaoBreakdown.targetDateISO && (
+                      {/* Botão Rápido: Hoje */}
+                      <button
+                        type="button"
+                        onClick={() => setCountDateFilter(availableDatesData.todayISO)}
+                        className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
+                          countDateFilter === availableDatesData.todayISO
+                            ? "bg-emerald-800 text-white border-emerald-950"
+                            : "bg-emerald-50 text-emerald-900 border-emerald-800 hover:bg-emerald-100"
+                        }`}
+                      >
+                        <span>Hoje ({formatISODateToBR(availableDatesData.todayISO)})</span>
+                        {availableDatesData.todayCount > 0 && (
+                          <span className="text-[8px] bg-emerald-700/30 text-emerald-950 px-1 rounded-none font-bold">
+                            {availableDatesData.todayCount}
+                          </span>
+                        )}
+                      </button>
+
+                      {/* Botão Rápido: Ontem */}
+                      <button
+                        type="button"
+                        onClick={() => setCountDateFilter(availableDatesData.yesterdayISO)}
+                        className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase transition-all border flex items-center gap-1 cursor-pointer ${
+                          countDateFilter === availableDatesData.yesterdayISO
+                            ? "bg-slate-800 text-white border-slate-950"
+                            : "bg-[#F2F1EB] text-slate-700 border-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        <span>Ontem</span>
+                        {availableDatesData.yesterdayCount > 0 && (
+                          <span className="text-[8px] bg-slate-300 text-slate-800 px-1 rounded-none font-bold">
+                            {availableDatesData.yesterdayCount}
+                          </span>
+                        )}
+                      </button>
+
+                      {/* Dropdown de Todas as Datas Detectadas */}
+                      <select
+                        value={countDateFilter}
+                        onChange={(e) => setCountDateFilter(e.target.value)}
+                        className="bg-[#F2F1EB] border border-[#141414] text-[9px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[130px]"
+                      >
+                        <option value="all">Outras ({availableDatesData.dates.length})...</option>
+                        {availableDatesData.dates.map((d) => (
+                          <option key={`date_opt_${d}`} value={d}>
+                            {formatISODateToBR(d)} ({availableDatesData.dateCounts[d]})
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Seletor Livre de Calendário */}
+                      <input
+                        type="date"
+                        value={countDateFilter !== "all" ? countDateFilter : ""}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setCountDateFilter(e.target.value);
+                          }
+                        }}
+                        className="bg-white border border-[#141414] text-[9px] font-mono font-bold px-1 py-0.5 outline-none text-[#141414] cursor-pointer max-w-[105px]"
+                        title="Selecionar qualquer data no calendário"
+                      />
+                    </div>
+
+                    {/* Opção de sincronizar e filtrar a listagem principal pela data selecionada */}
+                    <div className="flex items-center gap-1.5">
+                      {countDateFilter !== "all" && (
+                        <label className="flex items-center gap-1 cursor-pointer text-[9px] font-bold text-slate-800 select-none bg-amber-50 px-1 py-0.5 border border-amber-800">
+                          <input
+                            type="checkbox"
+                            checked={filterTableByCountDate}
+                            onChange={(e) => setFilterTableByCountDate(e.target.checked)}
+                            className="rounded-none border border-[#141414] text-[#141414] focus:ring-0 cursor-pointer h-2.5 w-2.5"
+                          />
+                          <span>Filtrar tabela abaixo</span>
+                        </label>
+                      )}
+
+                      {countDateFilter !== "all" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCountDateFilter("all");
+                            setFilterTableByCountDate(false);
+                          }}
+                          className="flex items-center gap-0.5 px-1 py-0.5 bg-rose-100 border border-rose-900 text-rose-950 text-[9px] font-bold hover:bg-rose-200 transition-colors cursor-pointer"
+                          title="Voltar para contagem geral de todas as datas"
+                        >
+                          <X size={9} />
+                          <span>Limpar</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Indicador de Status do Filtro de Data Ativo (Apenas se filtrado por admin) */}
+                {isAdmin && observacaoBreakdown.targetDateISO && (
                   <div className="mb-1 px-1.5 py-0.5 bg-emerald-50 border border-emerald-800 text-[9px] font-mono font-bold text-emerald-950 flex items-center justify-between">
                     <span>
                       ★ Produtividade de <strong>{observacaoBreakdown.dateFormatted}</strong>: {observacaoBreakdown.total} ações ({observacaoBreakdown.treatedClientsCount} clientes)
