@@ -680,38 +680,13 @@ export const isObservationFinalized = (obs: string | undefined | null): boolean 
   );
 };
 
-export const isRecordFinalized = (record: DynamicRecord | undefined | null, fields?: any[]): boolean => {
+export const isRecordFinalized = (record: DynamicRecord | undefined | null, _fields?: any[]): boolean => {
   if (!record || !record.data) return false;
 
-  // 1. Explicit toggle has highest priority
+  // A record is ONLY finalized when explicitly toggled to true by the user in the "STATUS PROPOSTA" column.
+  // It must NEVER be finalized automatically by observations, statuses, or system rules.
   const fin = record.data.finalizada || record.data._finalizada;
-  if (fin === "true" || fin === "sim" || fin === "1") {
-    return true;
-  }
-  if (fin === "false" || fin === "nao" || fin === "não" || fin === "0") {
-    return false;
-  }
-
-  // 2. Existing database fallback: check if Observação final matches "Proposta Cancelada/Reprovada"
-  let obsVal = record.data.observacaoFinal || record.data["Observação final"] || record.data["Observacao final"] || "";
-  
-  if (!obsVal && fields && Array.isArray(fields)) {
-    const obsField = fields.find(f => f && (f.id === 'observacaoFinal' || (f.label && f.label.toLowerCase().includes('observa'))));
-    if (obsField) {
-      obsVal = record.data[obsField.id] || record.data[obsField.label] || "";
-    }
-  }
-
-  if (!obsVal) {
-    for (const [k, v] of Object.entries(record.data)) {
-      if (k.toLowerCase().includes("observa")) {
-        obsVal = v;
-        break;
-      }
-    }
-  }
-
-  return isObservationFinalized(obsVal);
+  return fin === "true" || fin === "sim" || fin === "1";
 };
 
 export const normalizeForDeduplication = (
@@ -826,16 +801,18 @@ export const calculateExecutiveStatusSummary = (
   fields?: FieldDef[],
   statusConfigs?: StatusConfigItem[]
 ): GuideStatusStats => {
-  const activeRecords = allReportRecords.filter(r => !isRecordFinalized(r, fields));
-  const finalizadasCount = allReportRecords.length - activeRecords.length;
-  const totalBase = activeRecords.length;
-
+  const totalBase = allReportRecords.length;
+  let finalizadasCount = 0;
   let baseTrabalhada = 0;
   let comSucesso = 0;
   let semSucesso = 0;
   let semResposta = 0;
 
-  for (const record of activeRecords) {
+  for (const record of allReportRecords) {
+    if (isRecordFinalized(record, fields)) {
+      finalizadasCount++;
+    }
+
     const { isWorked, subMotivo } = getRecordStatus(record, fields, statusConfigs);
     if (isWorked) {
       baseTrabalhada++;

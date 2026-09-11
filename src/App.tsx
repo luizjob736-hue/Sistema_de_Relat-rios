@@ -400,6 +400,12 @@ function App() {
             }
           }
 
+          // Ensure proposals with "Proposta finalizada/paga" are marked as open (finalizada = 'false')
+          const obsVal = String(mergedData.observacaoFinal || mergedData["Observação final"] || mergedData["Observacao final"] || "");
+          if (obsVal && (obsVal.toLowerCase().includes("finalizada/paga") || obsVal.toLowerCase().includes("finalizada / paga") || obsVal.toLowerCase().includes("proposta paga") || obsVal.toLowerCase().includes("paga"))) {
+            mergedData.finalizada = "false";
+          }
+
           recordMap.set(rec.id, { ...rec, reportId: recReportId, data: mergedData });
         }
       });

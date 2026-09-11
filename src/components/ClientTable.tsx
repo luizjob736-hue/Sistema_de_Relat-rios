@@ -346,11 +346,11 @@ export function ClientTable({
 
   const copySummary = () => {
     const text = `Resumo Executivo (${schema.name})
-• Total da base (ativas): ${reportStats.totalBase.toLocaleString('pt-BR')} clientes${reportStats.finalizadasCount > 0 ? ` (${reportStats.finalizadasCount} propostas finalizadas desconsideradas)` : ''}
+• Total da base: ${reportStats.totalBase.toLocaleString('pt-BR')} clientes
 • Base trabalhada: ${reportStats.baseTrabalhada.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.baseTrabalhada, reportStats.totalBase)})
 • Contato efetivo: ${reportStats.contatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.contatoEfetivo, reportStats.baseTrabalhada)}) [Sucesso: ${reportStats.comSucesso}]
 • Sem contato efetivo: ${reportStats.semContatoEfetivo.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.semContatoEfetivo, reportStats.baseTrabalhada)}) [Sem Sucesso: ${reportStats.semSucesso} | Sem Resposta: ${reportStats.semResposta}]
-• Pendências de discagem: ${reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})${reportStats.finalizadasCount > 0 ? `\n• Propostas finalizadas: ${reportStats.finalizadasCount.toLocaleString('pt-BR')} clientes (fora do cálculo)` : ''}`;
+• Pendências de discagem: ${reportStats.pendenciasDiscagem.toLocaleString('pt-BR')} clientes (${formatPct(reportStats.pendenciasDiscagem, reportStats.totalBase)})${reportStats.finalizadasCount > 0 ? `\n• Propostas marcadas como finalizadas: ${reportStats.finalizadasCount.toLocaleString('pt-BR')}` : ''}`;
 
     navigator.clipboard.writeText(text).then(() => {
       setCopyFeedback("Copiado!");
@@ -1016,19 +1016,17 @@ export function ClientTable({
                                   updatePayload[field.label] = val;
                                 }
 
-                                // Smart sync when setting Observação Final
+                                // Smart sync when setting Observação Final (never touches Status Proposta/finalizada)
                                 const isObsField = field.id === 'observacaoFinal' || (field.label && field.label.toLowerCase().includes('observa'));
                                 if (isObsField) {
                                   const currentStatus = item?.data?.status || item?.data?.Status || '-';
                                   
                                   if (val === 'Proposta finalizada/paga') {
-                                    updatePayload.finalizada = 'true';
                                     if (currentStatus === '-' || !currentStatus) {
                                       updatePayload.status = 'Com Sucesso';
                                       updatePayload.Status = 'Com Sucesso';
                                     }
                                   } else if (val === 'Proposta cancelada' || val === 'Proposta reprovada') {
-                                    updatePayload.finalizada = 'true';
                                     if (currentStatus === '-' || !currentStatus) {
                                       updatePayload.status = 'Sem Sucesso';
                                       updatePayload.Status = 'Sem Sucesso';

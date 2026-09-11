@@ -74,10 +74,22 @@ function loadFallbackData(): FallbackData {
     if (fs.existsSync(CACHE_FILE)) {
       const content = fs.readFileSync(CACHE_FILE, "utf-8");
       const parsed = JSON.parse(content);
+      const loadedRecords = Array.isArray(parsed.records) ? parsed.records : defaultData.records;
+      
+      // Reset any proposals with "Proposta finalizada/paga" to open (finalizada = 'false')
+      loadedRecords.forEach((r: any) => {
+        if (r && r.data) {
+          const obs = String(r.data.observacaoFinal || r.data["Observação final"] || r.data["Observacao final"] || "");
+          if (obs && (obs.toLowerCase().includes("finalizada/paga") || obs.toLowerCase().includes("finalizada / paga") || obs.toLowerCase().includes("proposta paga") || obs.toLowerCase().includes("paga"))) {
+            r.data.finalizada = "false";
+          }
+        }
+      });
+
       return {
         users: Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : defaultData.users,
         schemas: Array.isArray(parsed.schemas) && parsed.schemas.length > 0 ? parsed.schemas : defaultData.schemas,
-        records: Array.isArray(parsed.records) ? parsed.records : defaultData.records,
+        records: loadedRecords,
         tratativas: Array.isArray(parsed.tratativas) ? parsed.tratativas : defaultData.tratativas,
         backups: Array.isArray(parsed.backups) ? parsed.backups : defaultData.backups
       };
@@ -239,6 +251,25 @@ async function initDb() {
       await sql`UPDATE dynamic_records SET report_id = 'default' WHERE report_id = '1'`;
       await sql`DELETE FROM report_schemas WHERE id = '1'`;
     } catch (e) {}
+
+    // Reset proposals with "Proposta finalizada/paga" to open (finalizada = 'false')
+    try {
+      await sql`
+        UPDATE dynamic_records 
+        SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{finalizada}', '"false"')
+        WHERE (
+          data->>'observacaoFinal' ILIKE '%finalizada/paga%' OR
+          data->>'observacaoFinal' ILIKE '%finalizada / paga%' OR
+          data->>'Observação final' ILIKE '%finalizada/paga%' OR
+          data->>'Observacao final' ILIKE '%finalizada/paga%' OR
+          data->>'observacaoFinal' ILIKE '%proposta paga%' OR
+          data->>'Observação final' ILIKE '%proposta paga%' OR
+          data->>'Observacao final' ILIKE '%proposta paga%'
+        ) AND (data->>'finalizada' = 'true' OR data->>'finalizada' IS NULL);
+      `;
+    } catch (e) {
+      console.warn("SQL migration for finalizada reset skipped/not applicable:", e);
+    }
 
     const existingUsers = await sql`SELECT count(*) FROM users`;
     if (parseInt(existingUsers[0].count) === 0) {
