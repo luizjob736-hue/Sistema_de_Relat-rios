@@ -14,9 +14,10 @@ import {
   Ban,
   ShieldCheck,
   ShieldAlert,
-  FolderLock
+  FolderLock,
+  Moon
 } from "lucide-react";
-import { UserRole, ReportSchema, UserItem } from "../types";
+import { UserRole, ReportSchema, UserItem, UserPresence } from "../types";
 
 interface UserManagementModalProps {
   isOpen: boolean;
@@ -34,6 +35,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
   onSchemaUpdated
 }) => {
   const [users, setUsers] = useState<UserItem[]>([]);
+  const [presences, setPresences] = useState<UserPresence[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -50,10 +52,17 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch("/api/users");
-      const data = await res.json();
+      const [resUsers, resPres] = await Promise.all([
+        fetch("/api/users"),
+        fetch("/api/users/presence")
+      ]);
+      const data = await resUsers.json();
       if (Array.isArray(data)) {
         setUsers(data);
+      }
+      if (resPres.ok) {
+        const pData = await resPres.json();
+        setPresences(pData);
       }
     } catch (err) {
       showToast("Erro ao carregar usuários.", 'error');
@@ -413,14 +422,47 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({
                                     {isAdmin ? <ShieldCheck size={14} /> : isUserBlocked ? <Lock size={14} /> : <User size={14} />}
                                   </div>
                                   <div>
-                                    <span className={isUserBlocked ? "line-through text-red-900" : "text-[#141414]"}>
-                                      {u.username}
-                                    </span>
-                                    {isAdmin && (
+                                    <div className="flex items-center gap-1.5">
+                                      {(() => {
+                                        const userPres = presences.find(p => p.username.toLowerCase() === u.username.toLowerCase());
+                                        const isPresActive = userPres?.status === 'active';
+                                        const isPresInactive = userPres?.status === 'inactive';
+                                        return (
+                                          <span 
+                                            className={`w-2 h-2 rounded-full ${
+                                              isPresActive ? 'bg-emerald-500 animate-pulse' :
+                                              isPresInactive ? 'bg-amber-500' : 'bg-slate-300'
+                                            }`} 
+                                            title={isPresActive ? "Ativo no sistema agora" : isPresInactive ? "Inativo por ausência (>15 min sem uso)" : "Offline"}
+                                          />
+                                        );
+                                      })()}
+                                      <span className={isUserBlocked ? "line-through text-red-900" : "text-[#141414]"}>
+                                        {u.username}
+                                      </span>
+                                    </div>
+                                    {isAdmin ? (
                                       <span className="block text-[9px] font-mono text-slate-500 font-normal">
                                         Superusuário
                                       </span>
-                                    )}
+                                    ) : (() => {
+                                      const userPres = presences.find(p => p.username.toLowerCase() === u.username.toLowerCase());
+                                      if (userPres?.status === 'inactive') {
+                                        return (
+                                          <span className="text-[9px] font-mono font-bold text-amber-700 flex items-center gap-0.5">
+                                            <Moon size={9} /> Inativo (&gt;15m)
+                                          </span>
+                                        );
+                                      }
+                                      if (userPres?.status === 'active') {
+                                        return (
+                                          <span className="text-[9px] font-mono font-bold text-emerald-700">
+                                            ● Ativo agora
+                                          </span>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
                                   </div>
                                 </div>
                               </td>

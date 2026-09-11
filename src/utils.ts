@@ -35,6 +35,31 @@ export const cleanColumn = (col: string): string => {
   return fixMojibake(s);
 };
 
+export const getCellValue = (recordData: Record<string, string> | undefined | null, field: FieldDef | undefined | null): string => {
+  if (!recordData || !field) return "-";
+  // 1. Authoritative check on exact field.id
+  if (field.id && recordData[field.id] !== undefined) {
+    return recordData[field.id] === "" ? "-" : fixMojibake(recordData[field.id]);
+  }
+  // 2. Secondary check on field.label
+  if (field.label && recordData[field.label] !== undefined) {
+    return recordData[field.label] === "" ? "-" : fixMojibake(recordData[field.label]);
+  }
+  // 3. Normalized fallback for unmapped original CSV columns
+  const labelText = field.label || field.id || "";
+  if (!labelText) return "-";
+  const normLabel = labelText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  for (const [key, val] of Object.entries(recordData)) {
+    if (key) {
+      const normKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      if (normKey === normLabel && val !== undefined) {
+        return val === "" ? "-" : fixMojibake(val);
+      }
+    }
+  }
+  return "-";
+};
+
 export const standardizeObservacaoFinal = (raw: string | undefined | null): string => {
   if (!raw) return "-";
   let s = String(raw).trim();

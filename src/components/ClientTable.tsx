@@ -1,31 +1,39 @@
 import React, { useState, useMemo } from "react";
-import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash, Calendar, CalendarDays, Clock, X, Check, ChevronDown, ChevronUp } from "lucide-react";
-import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns } from "../types";
+import { Search, Download, Trash2, CheckSquare, ClipboardCopy, BarChart3, Settings2, Filter, RotateCcw, CheckCircle2, Circle, CopySlash, Calendar, CalendarDays, Clock, X, Check, ChevronDown, ChevronUp, ArrowUpDown, Sparkles } from "lucide-react";
+import { DynamicRecord, ReportSchema, UserRole, FieldDef, StatusConfigItem, defaultStatusConfigs, ensureFixedColumns, GlobalSortConfig } from "../types";
 import { exportDynamicCSV, formatCurrentDateTime, isRecordFinalized, fixMojibake, getRecordStatus, calculateExecutiveStatusSummary, normalizeDateStringToISO, formatISODateToBR, extractRecordFillingDates, getTodayISODate, getYesterdayISODate } from "../utils";
 import { StatusConfigModal } from "./StatusConfigModal";
 import { DeduplicationModal } from "./DeduplicationModal";
 import { EditableTextCell } from "./EditableTextCell";
+import { FiltroTratativasModal } from "./FiltroTratativasModal";
+import { autoDetectSortType, sortRecordsByCriteria } from "../utils/recordSorting";
 
 interface ClientTableProps {
   schema: ReportSchema;
   records: DynamicRecord[];
   userRole?: UserRole;
+  currentUser?: string | null;
   onUpdateRecord: (id: string, updatedData: Record<string, string>) => void;
   onUpdateRecordsBulk: (ids: string[], updatedData: Record<string, string>) => void;
   onDeleteRecords?: (ids: string[]) => void;
   onUpdateSchema?: (updatedSchema: ReportSchema) => void;
   onDeduplicateGuide?: (columnId: string, columnLabel: string, idsToDelete: string[], removedRecords: DynamicRecord[]) => void;
+  onApplyGlobalSort?: (schemaId: string, config: GlobalSortConfig | null, reorderedRecordIds: string[]) => Promise<void>;
+  showToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export function ClientTable({
   schema,
   records,
   userRole = 'editor',
+  currentUser,
   onUpdateRecord,
   onUpdateRecordsBulk,
   onDeleteRecords,
   onUpdateSchema,
-  onDeduplicateGuide
+  onDeduplicateGuide,
+  onApplyGlobalSort,
+  showToast
 }: ClientTableProps) {
   const canEdit = userRole === 'admin' || userRole === 'editor';
   const isAdmin = userRole === 'admin';
@@ -39,6 +47,7 @@ export function ClientTable({
   const [copyFeedback, setCopyFeedback] = useState("");
   const [isStatusConfigOpen, setIsStatusConfigOpen] = useState(false);
   const [isDeduplicationOpen, setIsDeduplicationOpen] = useState(false);
+  const [isFiltroTratativasOpen, setIsFiltroTratativasOpen] = useState(false);
   const [bulkEdits, setBulkEdits] = useState<Record<string, string>>({});
   const [countDateFilter, setCountDateFilter] = useState<string>("all");
   const [filterTableByCountDate, setFilterTableByCountDate] = useState<boolean>(false);
@@ -258,25 +267,20 @@ export function ClientTable({
     }
 
     // 5. Sorting
-    if (sortField === '_finalizada') {
-      result.sort((a, b) => {
-        const valA = isRecordFinalized(a, fields) ? 1 : 0;
-        const valB = isRecordFinalized(b, fields) ? 1 : 0;
-        if (valA < valB) return sortOrder === "asc" ? -1 : 1;
-        if (valA > valB) return sortOrder === "asc" ? 1 : -1;
-        return 0;
-      });
-    } else if (sortField) {
+    if (sortField) {
+      // Local temporary sorting by user clicking column header
       const sortFieldDef = fields.find(f => f && f.id === sortField);
-      result.sort((a, b) => {
-        const valA = sortFieldDef ? getCellValue(a?.data || {}, sortFieldDef).toLowerCase() : ((a?.data?.[sortField]) || "").toLowerCase();
-        const valB = sortFieldDef ? getCellValue(b?.data || {}, sortFieldDef).toLowerCase() : ((b?.data?.[sortField]) || "").toLowerCase();
-        if (valA < valB) return sortOrder === "asc" ? -1 : 1;
-        if (valA > valB) return sortOrder === "asc" ? 1 : -1;
-        return 0;
+      result = sortRecordsByCriteria(result, fields, {
+        fieldId: sortField,
+        order: sortOrder,
+        sortType: autoDetectSortType(result, sortFieldDef, sortField),
+        emptyPosition: 'last'
       });
+    } else if (schema?.globalSortConfig) {
+      // Priority Treat Filter set by Admin (Global to all operators)
+      result = sortRecordsByCriteria(result, fields, schema.globalSortConfig);
     } else {
-      // Sort by original import order to keep record position fixed
+      // Sort by original import/database order to keep record position fixed
       result.sort((a, b) => {
         const orderA = a?.data?._order !== undefined ? Number(a.data._order) : Infinity;
         const orderB = b?.data?._order !== undefined ? Number(b.data._order) : Infinity;
@@ -286,7 +290,7 @@ export function ClientTable({
     }
 
     return result;
-  }, [records, searchTerm, columnFilters, sortField, sortOrder, schema?.id, fields, filterTableByCountDate, countDateFilter]);
+  }, [records, searchTerm, columnFilters, sortField, sortOrder, schema?.id, schema?.globalSortConfig, fields, filterTableByCountDate, countDateFilter]);
 
   // Executive summary calculation based strictly on active (non-finalized) records and the Status column
   const reportStats = useMemo(() => {
@@ -680,6 +684,20 @@ export function ClientTable({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsFiltroTratativasOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-300 border-2 border-[#141414] text-[#141414] text-[11px] font-black uppercase hover:bg-amber-400 transition-colors shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 cursor-pointer"
+                title="Filtro de Tratativas: Ordenar e priorizar a base para todos os operadores"
+              >
+                <ArrowUpDown size={12} className="text-[#141414]" />
+                <span>Filtro de Tratativas</span>
+                {schema.globalSortConfig && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse ml-0.5" title="Filtro de priorização ativo na base" />
+                )}
+              </button>
+            )}
             {isAdmin && onDeduplicateGuide && (
               <button
                 type="button"
@@ -726,6 +744,33 @@ export function ClientTable({
             )}
           </div>
         </div>
+
+        {/* Global Sort (Filtro de Tratativas) Active Notification Pill */}
+        {schema.globalSortConfig && (
+          <div className="mt-1.5 flex items-center justify-between px-2.5 py-1 bg-amber-100 border border-amber-900 text-[11px] font-mono text-amber-950">
+            <div className="flex items-center gap-2">
+              <span className="px-1.5 py-0.2 bg-[#141414] text-amber-300 font-bold text-[9px] uppercase tracking-wider">
+                Prioridade ADM
+              </span>
+              <span>
+                Filtro de Tratativas ativo: <strong>{schema.globalSortConfig.description || `${schema.globalSortConfig.fieldId} (${schema.globalSortConfig.order.toUpperCase()})`}</strong>
+              </span>
+            </div>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setIsFiltroTratativasOpen(true)}
+                className="text-[10px] text-amber-900 underline font-bold hover:text-black cursor-pointer"
+              >
+                Alterar Regra
+              </button>
+            ) : (
+              <span className="text-[9px] text-amber-800 italic">
+                (Ordem padronizada pelo Administrador)
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Dynamic Bulk Action Bar */}
         {canEdit && selectedIds.length > 0 && (
@@ -1105,6 +1150,24 @@ export function ClientTable({
           onConfirmDeduplicate={(colId, colLabel, idsToDelete, removedRecs) => {
             onDeduplicateGuide(colId, colLabel, idsToDelete, removedRecs);
           }}
+        />
+      )}
+
+      {/* Modal for Filtro de Tratativas (Admin Only) */}
+      {isAdmin && isFiltroTratativasOpen && (
+        <FiltroTratativasModal
+          isOpen={isFiltroTratativasOpen}
+          onClose={() => setIsFiltroTratativasOpen(false)}
+          schema={schema}
+          fields={fields}
+          records={records}
+          currentUser={currentUser || 'Admin'}
+          onApplyGlobalSort={async (schemaId, config, reorderedRecordIds) => {
+            if (onApplyGlobalSort) {
+              await onApplyGlobalSort(schemaId, config, reorderedRecordIds);
+            }
+          }}
+          showToast={showToast || ((msg) => console.log(msg))}
         />
       )}
     </div>

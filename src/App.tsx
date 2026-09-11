@@ -28,7 +28,9 @@ import { UserManagementModal } from "./components/UserManagementModal";
 import { UndoDeduplicationBanner } from "./components/UndoDeduplicationBanner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AdminManagementPage } from "./components/AdminManagementPage";
-import { DynamicRecord, ReportSchema, UserRole, defaultSchema, DeduplicationSession } from "./types";
+import { IdleSessionModal } from "./components/IdleSessionModal";
+import { useUserInactivity } from "./hooks/useUserInactivity";
+import { DynamicRecord, ReportSchema, UserRole, defaultSchema, DeduplicationSession, GlobalSortConfig } from "./types";
 
 function App() {
   const [currentUser, setCurrentUser] = useState<string | null>(() => {
@@ -102,7 +104,7 @@ function App() {
 
   // Toasts
   const [toastMessage, setToastMessage] = useState("");
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, _type?: 'success' | 'error' | 'info') => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(""), 4000);
   };
@@ -448,6 +450,32 @@ function App() {
     }
   }, [fetchTodayTratativasCount, userRole]);
 
+  // Per-User Inactivity & Sleep Mode (15 min without user interaction)
+  const isIdleRef = useRef<boolean>(false);
+
+  const handleUserWakeUp = useCallback(async () => {
+    isIdleRef.current = false;
+    // 1. Flush any pending queue if available
+    if (pendingUpdatesRef.current.size > 0) {
+      await flushPendingQueue();
+    }
+    // 2. Fetch latest authoritative data from server
+    await fetchData(true, false);
+    showToast("Sessão reativada! Sincronização restabelecida.");
+  }, [flushPendingQueue, fetchData]);
+
+  const handleUserGoIdle = useCallback(() => {
+    isIdleRef.current = true;
+  }, []);
+
+  const { isIdle, idleSince, wakeUp } = useUserInactivity({
+    currentUser,
+    userRole,
+    timeoutMs: 15 * 60 * 1000, // 15 minutos por usuário
+    onIdle: handleUserGoIdle,
+    onWakeUp: handleUserWakeUp
+  });
+
   useEffect(() => {
     if (!currentUser) {
       setIsLoading(false);
@@ -456,15 +484,16 @@ function App() {
 
     fetchData(false, false);
 
+    // Polling only runs when tab is visible AND user is NOT idle (saves resources during inactivity)
     const pollInterval = setInterval(() => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && !isIdleRef.current) {
         fetchData(true, false);
       }
     }, 30000);
 
     const handleFocus = () => {
       const now = Date.now();
-      if (now - lastFocusFetchTimeRef.current > 15000 && pendingUpdatesRef.current.size === 0) {
+      if (now - lastFocusFetchTimeRef.current > 15000 && pendingUpdatesRef.current.size === 0 && !isIdleRef.current) {
         lastFocusFetchTimeRef.current = now;
         fetchData(true, false);
       }
@@ -492,24 +521,32 @@ function App() {
 
   if (currentPage === 'admin_management' && userRole === 'admin') {
     return (
-      <AdminManagementPage
-        currentUser={currentUser}
-        userRole={userRole}
-        schemas={schemas}
-        todayTratativasCount={todayTratativasCount}
-        syncStatus={syncStatus}
-        pendingCount={pendingCount}
-        isManualRefreshing={isManualRefreshing}
-        onRefresh={handleManualRefresh}
-        onFlushPendingQueue={flushPendingQueue}
-        onBackToBases={() => {
-          setCurrentPage('bases');
-          localStorage.setItem("crm_current_page", "bases");
-        }}
-        onLogout={handleLogout}
-        showToast={showToast}
-        onOpenUserManagement={() => setIsUserManagementOpen(true)}
-      />
+      <>
+        <AdminManagementPage
+          currentUser={currentUser}
+          userRole={userRole}
+          schemas={schemas}
+          todayTratativasCount={todayTratativasCount}
+          syncStatus={syncStatus}
+          pendingCount={pendingCount}
+          isManualRefreshing={isManualRefreshing}
+          onRefresh={handleManualRefresh}
+          onFlushPendingQueue={flushPendingQueue}
+          onBackToBases={() => {
+            setCurrentPage('bases');
+            localStorage.setItem("crm_current_page", "bases");
+          }}
+          onLogout={handleLogout}
+          showToast={showToast}
+          onOpenUserManagement={() => setIsUserManagementOpen(true)}
+        />
+        <IdleSessionModal
+          isOpen={isIdle}
+          username={currentUser}
+          idleSince={idleSince}
+          onWakeUp={wakeUp}
+        />
+      </>
     );
   }
 
@@ -677,6 +714,63 @@ function App() {
   const handleDismissDeduplication = () => {
     setDedupSession(null);
     localStorage.removeItem("crm_dedup_session");
+  };
+
+  const handleApplyGlobalSort = async (schemaId: string, config: GlobalSortConfig | null, reorderedRecordIds: string[]) => {
+    if (userRole !== 'admin') {
+      showToast("Apenas administradores podem configurar o Filtro de Tratativas.", "error");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/schemas/${schemaId}/global-sort`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          globalSortConfig: config,
+          reorderedRecordIds,
+          username: currentUser,
+          userRole
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error("Erro ao salvar ordenação global.");
+      }
+
+      // Update local schema state
+      setSchemas(prev => {
+        const updated = prev.map(s => s.id === schemaId ? { ...s, globalSortConfig: config } : s);
+        try {
+          localStorage.setItem("crm_schemas_backup", JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      // Update local records _order
+      if (reorderedRecordIds && reorderedRecordIds.length > 0) {
+        const orderMap = new Map<string, number>();
+        reorderedRecordIds.forEach((id, idx) => orderMap.set(id, idx));
+
+        setRecords(prev => prev.map(r => {
+          if (orderMap.has(r.id)) {
+            return {
+              ...r,
+              data: {
+                ...r.data,
+                _order: String(orderMap.get(r.id))
+              }
+            };
+          }
+          return r;
+        }));
+      }
+
+      fetchTodayTratativasCount();
+    } catch (err) {
+      console.error("Error applying global sort:", err);
+      throw err;
+    }
   };
 
   const handleUpdateRecord = async (id: string, updatedData: Record<string, string>) => {
@@ -1227,11 +1321,14 @@ function App() {
                 schema={activeSchema}
                 records={records}
                 userRole={userRole || 'viewer'}
+                currentUser={currentUser}
                 onUpdateRecord={handleUpdateRecord}
                 onUpdateRecordsBulk={handleUpdateRecordsBulk}
                 onDeleteRecords={userRole === 'admin' ? handleDeleteRecords : undefined}
                 onUpdateSchema={userRole === 'admin' ? handleSaveSchema : undefined}
                 onDeduplicateGuide={userRole === 'admin' ? handleDeduplicateGuide : undefined}
+                onApplyGlobalSort={userRole === 'admin' ? handleApplyGlobalSort : undefined}
+                showToast={showToast}
               />
             </ErrorBoundary>
           ) : (
@@ -1280,6 +1377,14 @@ function App() {
           showToast={showToast}
         />
       )}
+
+      {/* Per-User Inactivity Modal (Wakes on any click) */}
+      <IdleSessionModal
+        isOpen={isIdle}
+        username={currentUser || ''}
+        idleSince={idleSince}
+        onWakeUp={wakeUp}
+      />
     </div>
   );
 }

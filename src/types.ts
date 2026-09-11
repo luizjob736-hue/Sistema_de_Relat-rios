@@ -31,12 +31,26 @@ export interface UserItem {
   allowedGuides?: string[];
 }
 
+export type SortDirection = 'asc' | 'desc';
+export type SortDataType = 'text' | 'number' | 'date' | 'status';
+
+export interface GlobalSortConfig {
+  fieldId: string;
+  order: SortDirection; // 'asc' (A-Z, 1-100) | 'desc' (Z-A, 100-1)
+  sortType: SortDataType;
+  emptyPosition?: 'last' | 'first';
+  updatedAt?: string;
+  updatedBy?: string;
+  description?: string;
+}
+
 export interface ReportSchema {
   id: string;
   name: string;
   fields: FieldDef[];
   statusConfigs?: StatusConfigItem[];
   isLocked?: boolean;
+  globalSortConfig?: GlobalSortConfig | null;
 }
 
 export interface DynamicRecord {
@@ -191,4 +205,14 @@ export interface DatabaseBackupItem {
   schemasSummary: { id: string; name: string; recordCount: number }[];
   status: string;
 }
+
+export interface UserPresence {
+  username: string;
+  userRole?: string;
+  status: 'active' | 'inactive' | 'offline';
+  lastSeen: string;
+  lastActive: string;
+  idleMinutes?: number;
+}
+
 

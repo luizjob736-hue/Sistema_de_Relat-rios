@@ -12,12 +12,13 @@ import {
   Clock, 
   Activity, 
   Award, 
-  TrendingUp,
-  FileSpreadsheet,
-  Layers,
-  UserCheck
+  TrendingUp, 
+  FileSpreadsheet, 
+  Layers, 
+  UserCheck,
+  Moon
 } from "lucide-react";
-import { DailyTratativasSummary, TratativaLog, ReportSchema } from "../types";
+import { DailyTratativasSummary, TratativaLog, ReportSchema, UserPresence } from "../types";
 import * as xlsx from "xlsx";
 
 interface AdminProductivityDashboardProps {
@@ -29,6 +30,7 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [summary, setSummary] = useState<DailyTratativasSummary | null>(null);
   const [logs, setLogs] = useState<TratativaLog[]>([]);
+  const [presences, setPresences] = useState<UserPresence[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [userFilter, setUserFilter] = useState<string>("ALL");
   const [reportFilter, setReportFilter] = useState<string>("ALL");
@@ -38,9 +40,10 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
   const fetchStats = async (dateStr: string) => {
     setIsLoading(true);
     try {
-      const [statsRes, logsRes] = await Promise.all([
+      const [statsRes, logsRes, presencesRes] = await Promise.all([
         fetch(`/api/tratativas/stats?date=${dateStr}`),
-        fetch(`/api/tratativas?date=${dateStr}&limit=500`)
+        fetch(`/api/tratativas?date=${dateStr}&limit=500`),
+        fetch(`/api/users/presence`)
       ]);
 
       if (statsRes.ok) {
@@ -50,6 +53,10 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
       if (logsRes.ok) {
         const logsData = await logsRes.json();
         setLogs(logsData);
+      }
+      if (presencesRes.ok) {
+        const presData = await presencesRes.json();
+        setPresences(presData);
       }
     } catch (err) {
       console.error("Erro ao carregar estatísticas de tratativas:", err);
@@ -401,8 +408,25 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
                           </td>
                           <td className="p-2.5 border-r border-[#141414]">
                             <div className="flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-600' : 'bg-slate-400'}`} />
-                              <span className="font-bold text-[#141414]">{u.username}</span>
+                              {(() => {
+                                const userPres = presences.find(p => p.username.toLowerCase() === u.username.toLowerCase());
+                                const isUserActive = userPres?.status === 'active';
+                                const isUserInactive = userPres?.status === 'inactive';
+                                return (
+                                  <div className="flex items-center gap-1.5" title={isUserActive ? "Conectado e Ativo agora" : isUserInactive ? "Inativo por ausência (>15 min sem uso)" : "Offline"}>
+                                    <span className={`w-2 h-2 rounded-full ${
+                                      isUserActive ? 'bg-emerald-500 animate-pulse' :
+                                      isUserInactive ? 'bg-amber-500' : 'bg-slate-400'
+                                    }`} />
+                                    <span className="font-bold text-[#141414]">{u.username}</span>
+                                    {isUserInactive && (
+                                      <span className="text-[9px] font-mono font-bold bg-amber-200 text-amber-900 px-1 py-0.2 border border-amber-400 flex items-center gap-0.5">
+                                        <Moon size={9} /> Inativo
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </td>
                           <td className="p-2.5 border-r border-[#141414] text-center">

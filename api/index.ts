@@ -187,6 +187,8 @@ async function initDb() {
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_guides JSONB DEFAULT '[]'::jsonb;`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_guides JSONB DEFAULT '[]'::jsonb;`;
       await sql`ALTER TABLE report_schemas ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false;`;
+      await sql`ALTER TABLE report_schemas ADD COLUMN IF NOT EXISTS status_configs JSONB DEFAULT '[]'::jsonb;`;
+      await sql`ALTER TABLE report_schemas ADD COLUMN IF NOT EXISTS global_sort_config JSONB;`;
     } catch (colErr) {
       console.warn("Table alter check:", colErr);
     }
@@ -257,6 +259,49 @@ async function initDb() {
 }
 initDb();
 
+// ==========================================
+// USER PRESENCE & INACTIVITY TRACKER (PER USER - 15 MIN TIMEOUT)
+// ==========================================
+export interface UserPresenceRecord {
+  userId?: string;
+  username: string;
+  userRole?: string;
+  status: 'active' | 'inactive';
+  lastSeen: number; // timestamp ms
+  lastActive: number; // timestamp ms
+}
+
+const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos de inatividade
+const userPresenceRegistry = new Map<string, UserPresenceRecord>();
+
+function markUserActivity(username: string, role?: string, forceStatus?: 'active' | 'inactive') {
+  if (!username) return;
+  const key = username.toLowerCase();
+  const now = Date.now();
+  const existing = userPresenceRegistry.get(key);
+
+  if (forceStatus === 'inactive') {
+    userPresenceRegistry.set(key, {
+      userId: existing?.userId,
+      username: existing?.username || username,
+      userRole: role || existing?.userRole || 'editor',
+      status: 'inactive',
+      lastSeen: now,
+      lastActive: existing?.lastActive || (now - INACTIVITY_TIMEOUT_MS)
+    });
+    return;
+  }
+
+  userPresenceRegistry.set(key, {
+    userId: existing?.userId,
+    username: existing?.username || username,
+    userRole: role || existing?.userRole || 'editor',
+    status: 'active',
+    lastSeen: now,
+    lastActive: now
+  });
+}
+
 // Helper to log Tratativas
 async function logTratativa(entry: {
   username: string;
@@ -268,6 +313,9 @@ async function logTratativa(entry: {
   actionType: string;
   details: Record<string, any>;
 }) {
+  if (entry.username) {
+    markUserActivity(entry.username, entry.userRole || 'editor', 'active');
+  }
   const id = `trat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
@@ -482,6 +530,9 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
+    // Mark user activity on login
+    markUserActivity(user.username, user.role, 'active');
+
     res.json({ 
       success: true, 
       id: user.id,
@@ -494,6 +545,62 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro no login" });
+  }
+});
+
+// User Presence & Inactivity Status (Per-User tracking)
+app.post("/api/users/presence", (req, res) => {
+  try {
+    const { username, role, status } = req.body;
+    if (!username) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const nextStatus: 'active' | 'inactive' = status === 'inactive' ? 'inactive' : 'active';
+    markUserActivity(username, role, nextStatus);
+
+    res.json({
+      success: true,
+      username,
+      status: nextStatus,
+      serverTime: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("Error updating presence:", err);
+    res.status(500).json({ error: "Failed to update presence" });
+  }
+});
+
+app.get("/api/users/presence", (req, res) => {
+  try {
+    const now = Date.now();
+    const presenceList = Array.from(userPresenceRegistry.values()).map(p => {
+      const idleTime = now - p.lastActive;
+      const seenTime = now - p.lastSeen;
+      let computedStatus: 'active' | 'inactive' | 'offline' = p.status;
+
+      if (seenTime > 30 * 60 * 1000) {
+        computedStatus = 'offline';
+      } else if (p.status === 'inactive' || idleTime >= INACTIVITY_TIMEOUT_MS) {
+        computedStatus = 'inactive';
+      } else {
+        computedStatus = 'active';
+      }
+
+      return {
+        username: p.username,
+        userRole: p.userRole || 'editor',
+        status: computedStatus,
+        lastSeen: new Date(p.lastSeen).toISOString(),
+        lastActive: new Date(p.lastActive).toISOString(),
+        idleMinutes: Math.max(0, Math.floor(idleTime / 60000))
+      };
+    });
+
+    res.json(presenceList);
+  } catch (err) {
+    console.error("Error fetching presence:", err);
+    res.status(500).json({ error: "Failed to fetch presence" });
   }
 });
 
@@ -701,15 +808,17 @@ app.get("/api/schemas", async (req, res) => {
     let allSchemas;
     try {
       allSchemas = await sql`
-        SELECT id, name, fields, COALESCE(is_locked, false) as "isLocked"
+        SELECT id, name, fields, COALESCE(is_locked, false) as "isLocked", status_configs as "statusConfigs", global_sort_config as "globalSortConfig"
         FROM report_schemas
         ORDER BY name ASC
       `;
-      // Ensure fields is parsed if string
+      // Ensure JSON fields are parsed if returned as strings
       allSchemas = allSchemas.map(s => ({
         ...s,
         isLocked: Boolean(s.isLocked),
-        fields: typeof s.fields === 'string' ? JSON.parse(s.fields) : s.fields
+        fields: typeof s.fields === 'string' ? JSON.parse(s.fields) : s.fields,
+        statusConfigs: typeof s.statusConfigs === 'string' ? JSON.parse(s.statusConfigs) : (s.statusConfigs || undefined),
+        globalSortConfig: typeof s.globalSortConfig === 'string' ? JSON.parse(s.globalSortConfig) : (s.globalSortConfig || null)
       }));
     } catch (dbErr) {
       // Secondary schema load
@@ -727,22 +836,27 @@ app.get("/api/schemas", async (req, res) => {
 
 app.post("/api/schemas", async (req, res) => {
   try {
-    const { id, name, fields, isLocked } = req.body;
+    const { id, name, fields, isLocked, statusConfigs, globalSortConfig } = req.body;
     if (!id || !name || !fields) {
       return res.status(400).json({ error: "Missing required schema fields" });
     }
 
     const safeIsLocked = Boolean(isLocked);
+    const statusConfigsJson = statusConfigs ? JSON.stringify(statusConfigs) : '[]';
+    const globalSortJson = globalSortConfig ? JSON.stringify(globalSortConfig) : null;
+
     let dbSuccess = false;
     try {
       const fieldsJson = JSON.stringify(fields);
       await sql`
-        INSERT INTO report_schemas (id, name, fields, is_locked)
-        VALUES (${id}, ${name}, ${fieldsJson}::jsonb, ${safeIsLocked})
+        INSERT INTO report_schemas (id, name, fields, is_locked, status_configs, global_sort_config)
+        VALUES (${id}, ${name}, ${fieldsJson}::jsonb, ${safeIsLocked}, ${statusConfigsJson}::jsonb, ${globalSortJson ? sql`${globalSortJson}::jsonb` : null})
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           fields = EXCLUDED.fields,
-          is_locked = EXCLUDED.is_locked
+          is_locked = EXCLUDED.is_locked,
+          status_configs = COALESCE(EXCLUDED.status_configs, report_schemas.status_configs),
+          global_sort_config = EXCLUDED.global_sort_config
       `;
       dbSuccess = true;
     } catch (dbErr) {
@@ -752,7 +866,14 @@ app.post("/api/schemas", async (req, res) => {
     // Update Fallback Cache
     const cache = loadFallbackData();
     const existingIndex = cache.schemas.findIndex(s => s.id === id);
-    const schemaToSave = { id, name, fields, isLocked: safeIsLocked };
+    const schemaToSave = { 
+      id, 
+      name, 
+      fields, 
+      isLocked: safeIsLocked,
+      statusConfigs: statusConfigs || cache.schemas[existingIndex]?.statusConfigs,
+      globalSortConfig: globalSortConfig !== undefined ? globalSortConfig : cache.schemas[existingIndex]?.globalSortConfig
+    };
     if (existingIndex >= 0) {
       cache.schemas[existingIndex] = schemaToSave;
     } else {
@@ -760,10 +881,96 @@ app.post("/api/schemas", async (req, res) => {
     }
     saveFallbackData(cache);
 
-    res.json({ success: true, fallback: !dbSuccess });
+    res.json({ success: true, fallback: !dbSuccess, schema: schemaToSave });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save schema" });
+  }
+});
+
+// Filtro de Tratativas - Global Guide Sorting Endpoint (Admin Only)
+app.post("/api/schemas/:id/global-sort", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { globalSortConfig, reorderedRecordIds, username, userRole } = req.body;
+    
+    let dbSuccess = false;
+    const sortConfigJson = globalSortConfig ? JSON.stringify(globalSortConfig) : null;
+
+    try {
+      if (sortConfigJson) {
+        await sql`
+          UPDATE report_schemas
+          SET global_sort_config = ${sortConfigJson}::jsonb
+          WHERE id = ${id}
+        `;
+      } else {
+        await sql`
+          UPDATE report_schemas
+          SET global_sort_config = NULL
+          WHERE id = ${id}
+        `;
+      }
+
+      // Reorder physical indices if recordIds provided
+      if (reorderedRecordIds && Array.isArray(reorderedRecordIds) && reorderedRecordIds.length > 0) {
+        const chunkSize = 1500;
+        for (let i = 0; i < reorderedRecordIds.length; i += chunkSize) {
+          const chunk = reorderedRecordIds.slice(i, i + chunkSize);
+          const mapping = chunk.map((recId: string, idx: number) => ({ id: recId, order: i + idx }));
+          const jsonPayload = JSON.stringify(mapping);
+          await sql`
+            UPDATE dynamic_records AS dr
+            SET data = dr.data || jsonb_build_object('_order', (m.val->>'order')::int)
+            FROM jsonb_array_elements(${jsonPayload}::jsonb) AS m(val)
+            WHERE dr.id = (m.val->>'id')::text;
+          `;
+        }
+      }
+      dbSuccess = true;
+    } catch (dbErr) {
+      console.warn("DB global sort update failed, using fallback cache", dbErr);
+    }
+
+    // Update fallback cache
+    const cache = loadFallbackData();
+    const sIdx = cache.schemas.findIndex(s => s.id === id);
+    if (sIdx >= 0) {
+      cache.schemas[sIdx].globalSortConfig = globalSortConfig || null;
+    }
+    if (reorderedRecordIds && Array.isArray(reorderedRecordIds) && reorderedRecordIds.length > 0) {
+      const orderMap = new Map<string, number>();
+      reorderedRecordIds.forEach((rid: string, idx: number) => orderMap.set(rid, idx));
+      cache.records = cache.records.map(r => {
+        if (orderMap.has(r.id)) {
+          return { ...r, data: { ...r.data, _order: String(orderMap.get(r.id)) } };
+        }
+        return r;
+      });
+    }
+    saveFallbackData(cache);
+
+    // Audit log
+    if (username) {
+      const fieldDesc = globalSortConfig 
+        ? `${globalSortConfig.fieldId} (${globalSortConfig.order === 'asc' ? 'A-Z / 1-100' : 'Z-A / 100-1'})` 
+        : 'Padrão / Removido';
+      
+      logTratativa({
+        username,
+        userRole: userRole || 'admin',
+        reportId: id,
+        recordId: 'GLOBAL_SORT',
+        clientName: `Filtro de Tratativas: ${fieldDesc}`,
+        actionType: 'GLOBAL_SORT_UPDATE',
+        details: { globalSortConfig, totalRecords: reorderedRecordIds?.length || 0 }
+      }).catch(e => console.warn(e));
+    }
+
+    res.json({ success: true, fallback: !dbSuccess, globalSortConfig });
+  } catch (err) {
+    console.error("Error updating global sort config:", err);
+    res.status(500).json({ error: "Failed to update global sort config" });
   }
 });
 
