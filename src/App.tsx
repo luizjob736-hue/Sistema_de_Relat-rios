@@ -385,19 +385,26 @@ function App() {
           }
 
           const lastEdit = lastLocalEditTimeRef.current.get(rec.id) || 0;
-          const isRecentlyEdited = (now - lastEdit) < 45000;
+          const isRecentlyEdited = (now - lastEdit) < 60000;
+          const existingLocal = recordsRef.current.find(lr => lr.id === rec.id);
 
-          let mergedData = { ...rec.data };
+          // Deep merge to guarantee all columns and manual edits remain intact:
+          // 1. Existing local state provides baseline so columns are never erased
+          // 2. Server data is overlaid
+          // 3. Pending offline/in-flight updates are overlaid
+          // 4. Recent local edits retain full precedence
+          let mergedData = { 
+            ...(existingLocal?.data || {}), 
+            ...(rec.data || {}) 
+          };
+
           if (pendingUpdatesRef.current.has(rec.id)) {
             const pending = pendingUpdatesRef.current.get(rec.id)!;
-            mergedData = { ...mergedData, ...pending.data };
+            mergedData = { ...mergedData, ...(pending.data || {}) };
           }
 
-          if (isRecentlyEdited) {
-            const existingLocal = recordsRef.current.find(lr => lr.id === rec.id);
-            if (existingLocal) {
-              mergedData = { ...mergedData, ...existingLocal.data };
-            }
+          if (isRecentlyEdited && existingLocal) {
+            mergedData = { ...mergedData, ...(existingLocal.data || {}) };
           }
 
           // Ensure proposals with "Proposta finalizada/paga" are marked as open (finalizada = 'false')
@@ -780,7 +787,7 @@ function App() {
   };
 
   const handleUpdateRecord = async (id: string, updatedData: Record<string, string>) => {
-    const existingRec = records.find((r) => r.id === id);
+    const existingRec = recordsRef.current.find((r) => r.id === id) || records.find((r) => r.id === id);
     const targetReportId = (existingRec?.reportId && existingRec.reportId !== '1')
       ? existingRec.reportId
       : (activeSchemaId || 'default');
@@ -792,34 +799,39 @@ function App() {
       ...updatedData
     };
 
-    const mergedData = { ...(existingRec?.data || {}), ...dataWithTimestamp };
+    const existingPending = pendingUpdatesRef.current.get(id);
+    const mergedData = { 
+      ...(existingRec?.data || {}), 
+      ...(existingPending?.data || {}), 
+      ...dataWithTimestamp 
+    };
+    
     const currentStatus = mergedData.status || mergedData.Status || mergedData.STATUS || '';
     const currentObs = mergedData.observacaoFinal || mergedData['Observação final'] || mergedData['Observacao final'] || '';
 
     lastLocalEditTimeRef.current.set(id, Date.now());
 
-    // 1. Optimistic instant local update
+    // 1. Optimistic instant local update with full preservation of all existing record fields
     setRecords((prev) =>
       prev.map((r) => {
         if (r.id === id) {
-          return { ...r, reportId: targetReportId, data: mergedData };
+          return { ...r, reportId: targetReportId, data: { ...r.data, ...mergedData } };
         }
         return r;
       })
     );
 
-    // 2. Register in pending queue and persist to storage
-    const existingPending = pendingUpdatesRef.current.get(id);
+    // 2. Register in pending queue and persist to storage with FULL mergedData
     pendingUpdatesRef.current.set(id, {
       reportId: targetReportId,
-      data: { ...(existingPending?.data || {}), ...dataWithTimestamp },
+      data: mergedData,
       timestamp: Date.now()
     });
     setPendingCount(pendingUpdatesRef.current.size);
     setSyncStatus('saving');
     persistPendingUpdates();
 
-    // 3. Dispatch to API with user tracking
+    // 3. Dispatch to API with user tracking & FULL mergedData so backend always has all columns
     try {
       const res = await fetch("/api/records", {
         method: "POST",
@@ -827,13 +839,14 @@ function App() {
         body: JSON.stringify({
           id,
           reportId: targetReportId,
-          data: dataWithTimestamp,
+          data: mergedData,
+          updatedFields: dataWithTimestamp,
           currentStatus,
           currentObs,
           username: currentUser || 'Operador',
           userRole: userRole || 'editor',
-          clientName: existingRec?.data?.nome || existingRec?.data?.NOME || '',
-          clientCpf: existingRec?.data?.cpf || existingRec?.data?.CPF || ''
+          clientName: mergedData.nome || mergedData.NOME || existingRec?.data?.nome || existingRec?.data?.NOME || '',
+          clientCpf: mergedData.cpf || mergedData.CPF || existingRec?.data?.cpf || existingRec?.data?.CPF || ''
         }),
       });
 

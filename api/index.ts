@@ -1099,7 +1099,7 @@ app.post("/api/records", async (req, res) => {
         INSERT INTO dynamic_records (id, report_id, data)
         VALUES (${newRecord.id}, ${rId}, ${dataJson}::jsonb)
         ON CONFLICT (id) DO UPDATE SET
-          data = dynamic_records.data || EXCLUDED.data,
+          data = COALESCE(dynamic_records.data, '{}'::jsonb) || EXCLUDED.data,
           report_id = CASE
             WHEN dynamic_records.report_id IS NOT NULL 
                  AND dynamic_records.report_id != 'default' 
@@ -1126,7 +1126,7 @@ app.post("/api/records", async (req, res) => {
       recordToSave = {
         id: newRecord.id,
         reportId: safeReportId,
-        data: { ...existing.data, ...(newRecord.data || {}) }
+        data: { ...(existing.data || {}), ...(newRecord.data || {}) }
       };
       cache.records[existingIndex] = recordToSave;
     } else {
