@@ -1262,7 +1262,7 @@ app.put("/api/records/bulk-update", async (req, res) => {
         const jsonUpdate = JSON.stringify(updatedData);
         await sql`
           UPDATE dynamic_records
-          SET data = data || ${jsonUpdate}::jsonb
+          SET data = COALESCE(data, '{}'::jsonb) || ${jsonUpdate}::jsonb
           WHERE id = ANY(${ids})
         `;
         dbSuccess = true;

@@ -418,19 +418,80 @@ export function ClientTable({
     document.body.removeChild(link);
   };
 
-  const applyBulkEdit = (fieldId: string) => {
+  const applyAllBulkEdits = (specificFieldId?: string) => {
     if (selectedIds.length === 0) return;
-    let value = bulkEdits[fieldId];
     
-    // Auto-timestamp for attempts if user typed 'agora' or 'now'
-    if (value && value.toLowerCase() === 'agora') {
-      value = formatCurrentDateTime();
+    // Collect all fields with values in bulkEdits
+    const filledKeys = Object.keys(bulkEdits).filter(k => bulkEdits[k] !== undefined && bulkEdits[k] !== "");
+    if (specificFieldId && bulkEdits[specificFieldId] && !filledKeys.includes(specificFieldId)) {
+      filledKeys.push(specificFieldId);
     }
     
-    if (value !== undefined && value !== "") {
-      onUpdateRecordsBulk(selectedIds, { [fieldId]: value });
+    if (filledKeys.length === 0) return;
+
+    const combinedPayload: Record<string, string> = {};
+
+    filledKeys.forEach(fieldId => {
+      let value = bulkEdits[fieldId];
+      if (value === undefined || value === "") return;
+
+      const fieldDef = fields.find(f => f.id === fieldId);
+
+      // Auto-timestamp for attempts if user typed 'agora' or 'now'
+      const isDateField = 
+        fieldId.toLowerCase().includes("tentativa") || 
+        (fieldDef?.label && fieldDef.label.toLowerCase().includes("tentativa")) ||
+        fieldId.toLowerCase().includes("data") ||
+        (fieldDef?.label && fieldDef.label.toLowerCase().includes("data"));
+
+      if (isDateField && value && (value.trim().toLowerCase() === "agora" || value.trim().toLowerCase() === "now")) {
+        value = formatCurrentDateTime();
+      }
+
+      combinedPayload[fieldId] = value;
+      if (fieldDef?.label && fieldDef.label !== fieldId) {
+        combinedPayload[fieldDef.label] = value;
+      }
+
+      // Smart status sync for Observação Final
+      const isObsField = fieldId === 'observacaoFinal' || (fieldDef?.label && fieldDef.label.toLowerCase().includes('observa'));
+      if (isObsField) {
+        if (
+          value === 'Proposta finalizada/paga' ||
+          value === 'Link de formalização enviado/reenviado' ||
+          value === 'Documentação apresentada' ||
+          value === 'Dados corrigidos' ||
+          value === 'Retorno à jornada' ||
+          value === 'Proposta reapresentada' ||
+          value === 'Sem interesse'
+        ) {
+          if (!combinedPayload.status && !combinedPayload.Status) {
+            combinedPayload.status = 'Com Sucesso';
+            combinedPayload.Status = 'Com Sucesso';
+          }
+        } else if (value === 'Proposta cancelada' || value === 'Proposta reprovada' || value === 'Contato sem sucesso') {
+          if (!combinedPayload.status && !combinedPayload.Status) {
+            combinedPayload.status = 'Sem Sucesso';
+            combinedPayload.Status = 'Sem Sucesso';
+          }
+        } else if (value === 'Documentação pendente' || value === 'Aguardando') {
+          if (!combinedPayload.status && !combinedPayload.Status) {
+            combinedPayload.status = 'Sem Resposta';
+            combinedPayload.Status = 'Sem Resposta';
+          }
+        }
+      }
+    });
+
+    if (Object.keys(combinedPayload).length > 0) {
+      onUpdateRecordsBulk(selectedIds, combinedPayload);
+      setBulkEdits({});
       setSelectedIds([]);
     }
+  };
+
+  const applyBulkEdit = (fieldId: string) => {
+    applyAllBulkEdits(fieldId);
   };
 
   return (
@@ -822,6 +883,12 @@ export function ClientTable({
                     className="bg-transparent text-[10px] font-mono font-bold text-[#141414] outline-none max-w-[130px] cursor-pointer"
                     value={bulkEdits[field.id] || ""}
                     onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        applyAllBulkEdits();
+                      }
+                    }}
                   >
                     <option value="" disabled>Alterar {field.label || field.id}</option>
                     {field.options?.map(opt => (
@@ -836,6 +903,12 @@ export function ClientTable({
                       placeholder={`Novo ${field.label || field.id}`}
                       value={bulkEdits[field.id] || ""}
                       onChange={(e) => setBulkEdits({...bulkEdits, [field.id]: e.target.value})}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          applyAllBulkEdits();
+                        }
+                      }}
                       className="bg-white border border-[#141414] px-1 text-[10px] font-mono outline-none max-w-[130px]"
                     />
                     {field.options && field.options.length > 0 && (
@@ -850,12 +923,24 @@ export function ClientTable({
                 <button
                   onClick={() => applyBulkEdit(field.id)}
                   className="bg-[#141414] text-white p-0.5 hover:bg-black transition-colors"
-                  title="Aplicar aos selecionados"
+                  title="Aplicar todas as alterações aos selecionados (Enter)"
                 >
                   <CheckSquare size={10} />
                 </button>
               </div>
             ))}
+
+            {Object.values(bulkEdits).some(v => v !== undefined && v !== "") && (
+              <button
+                type="button"
+                onClick={() => applyAllBulkEdits()}
+                className="flex items-center gap-1.5 bg-emerald-600 text-white font-mono font-bold text-[10px] px-2 py-0.5 border-2 border-[#141414] hover:bg-emerald-700 shadow-[1px_1px_0px_rgba(0,0,0,1)] active:translate-y-0.5 cursor-pointer uppercase transition-all"
+                title="Salvar e aplicar todas as alterações preenchidas aos registros selecionados (ou pressione Enter)"
+              >
+                <CheckSquare size={11} />
+                <span>Salvar Todas ({Object.values(bulkEdits).filter(v => v !== undefined && v !== "").length}) [Enter]</span>
+              </button>
+            )}
           </div>
         )}
       </div>
