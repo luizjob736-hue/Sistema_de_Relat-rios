@@ -34,6 +34,7 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [userFilter, setUserFilter] = useState<string>("ALL");
   const [reportFilter, setReportFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = useState<'STATUS_ONLY' | 'ALL' | 'NO_STATUS'>('STATUS_ONLY');
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'logs'>('overview');
 
@@ -76,10 +77,21 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
     setSelectedDate(d.toISOString().split('T')[0]);
   };
 
+  const isStatusPresent = (log: TratativaLog): boolean => {
+    const details = log.details || {};
+    const changes = details.changes || {};
+    const statusVal = details.currentStatus || changes.status || changes.Status || changes.STATUS || details.newValue;
+    if (!statusVal) return false;
+    const s = String(statusVal).trim();
+    return s !== '' && s !== '-' && s !== '—' && s !== '(vazio)' && s.toLowerCase() !== 'null' && s.toLowerCase() !== 'undefined' && s !== '*';
+  };
+
   // Filtered Logs
   const filteredLogs = logs.filter((log) => {
     if (userFilter !== "ALL" && log.username !== userFilter) return false;
     if (reportFilter !== "ALL" && log.reportId !== reportFilter) return false;
+    if (statusFilter === 'STATUS_ONLY' && !isStatusPresent(log)) return false;
+    if (statusFilter === 'NO_STATUS' && isStatusPresent(log)) return false;
     if (searchTerm) {
       const s = searchTerm.toLowerCase();
       const matchClient = (log.clientName || "").toLowerCase().includes(s);
@@ -104,12 +116,12 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
         "Posição": index + 1,
         "Usuário / Operador": u.username,
         "Função": u.userRole === 'admin' ? 'Administrador' : u.userRole === 'viewer' ? 'Visualizador' : 'Operador',
-        "Total de Tratativas": u.totalTratativas,
+        "Tratativas (com Status)": u.totalTratativas,
         "Com Sucesso": u.comSucesso,
         "Taxa de Sucesso (%)": `${pct}%`,
         "Sem Sucesso": u.semSucesso,
         "Sem Resposta": u.semResposta,
-        "Outras Modificações": u.outras,
+        "Ações s/ Status (Não tratadas)": u.outras,
         "Última Atividade": u.lastActivityTime ? new Date(u.lastActivityTime).toLocaleTimeString('pt-BR') : "-",
         "Bases Trabalhadas": u.reportsWorked.join(", ") || "-"
       };
@@ -118,15 +130,19 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
     xlsx.utils.book_append_sheet(wb, wsUsers, "Produtividade por Operador");
 
     // Sheet 2: Logs Detalhados
-    const logRows = logs.map(l => ({
-      "Data/Hora": new Date(l.createdAt).toLocaleString('pt-BR'),
-      "Operador": l.username,
-      "Base (ID)": l.reportId,
-      "Cliente": l.clientName || "-",
-      "CPF": l.clientCpf || "-",
-      "Tipo": l.actionType,
-      "Detalhes": JSON.stringify(l.details || {})
-    }));
+    const logRows = logs.map(l => {
+      const hasSt = isStatusPresent(l);
+      return {
+        "Data/Hora": new Date(l.createdAt).toLocaleString('pt-BR'),
+        "Operador": l.username,
+        "Possui Status?": hasSt ? "Sim (Tratada)" : "Não (Pendente)",
+        "Base (ID)": l.reportId,
+        "Cliente": l.clientName || "-",
+        "CPF": l.clientCpf || "-",
+        "Tipo": l.actionType,
+        "Detalhes": JSON.stringify(l.details || {})
+      };
+    });
     const wsLogs = xlsx.utils.json_to_sheet(logRows.length > 0 ? logRows : [{ "Aviso": "Nenhum log gravado" }]);
     xlsx.utils.book_append_sheet(wb, wsLogs, "Logs de Tratativas");
 
@@ -208,14 +224,14 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
         {/* Total Tratativas no Dia */}
         <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
           <div>
-            <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5">
-              TRATATIVAS NO DIA
+            <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5" title="Contagem apenas das propostas que possuem status preenchido (tratadas)">
+              TRATATIVAS (C/ STATUS)
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-2xl font-mono font-bold text-[#141414]">
                 {summary?.totalToday || 0}
               </span>
-              <span className="text-[10px] font-bold text-slate-600">ações</span>
+              <span className="text-[10px] font-bold text-slate-600">tratadas</span>
             </div>
           </div>
           <div className="bg-white/50 p-2 border border-[#141414] text-[#141414]">
@@ -255,6 +271,11 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
               <span className="text-2xl font-bold text-rose-800">
                 {summary?.semSucessoToday || 0}
               </span>
+              {summary && summary.totalToday > 0 && (
+                <span className="text-[11px] font-bold text-rose-800">
+                  ({Math.round((summary.semSucessoToday / summary.totalToday) * 100)}%)
+                </span>
+              )}
             </div>
           </div>
           <div className="bg-rose-100 p-2 border border-rose-900 text-rose-900">
@@ -272,6 +293,11 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
               <span className="text-2xl font-bold text-amber-800">
                 {summary?.semRespostaToday || 0}
               </span>
+              {summary && summary.totalToday > 0 && (
+                <span className="text-[11px] font-bold text-amber-800">
+                  ({Math.round((summary.semRespostaToday / summary.totalToday) * 100)}%)
+                </span>
+              )}
             </div>
           </div>
           <div className="bg-amber-100 p-2 border border-amber-900 text-amber-900">
@@ -282,13 +308,14 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
         {/* Outras Ações / Sem Status */}
         <div className="bg-[#D9D8D4] border border-[#141414] p-3.5 flex items-center justify-between">
           <div>
-            <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5" title="Ações ou edições realizadas em registros que não possuem status definido">
-              SEM STATUS / OUTRAS
+            <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest block mb-0.5" title="Edições realizadas em propostas sem status. Como não possuem status, não são computadas como tratativa.">
+              AÇÕES S/ STATUS
             </span>
             <div className="flex items-baseline gap-1.5 font-mono">
               <span className="text-2xl font-bold text-slate-700">
                 {summary?.outrasToday || 0}
               </span>
+              <span className="text-[10px] font-bold text-slate-600">não tratadas</span>
             </div>
           </div>
           <div className="bg-slate-200 p-2 border border-slate-700 text-slate-800">
@@ -347,7 +374,7 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
         >
           <div className="flex items-center gap-1.5">
             <Clock size={14} />
-            <span>Log Detalhado de Tratativas ({logs.length})</span>
+            <span>Log de Tratativas ({filteredLogs.length})</span>
           </div>
         </button>
       </div>
@@ -373,11 +400,11 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
                     <th className="p-2.5 border-r border-slate-700 text-center w-12">#</th>
                     <th className="p-2.5 border-r border-slate-700">Operador / Usuário</th>
                     <th className="p-2.5 border-r border-slate-700 text-center">Função</th>
-                    <th className="p-2.5 border-r border-slate-700 text-center font-mono">Total Tratativas</th>
+                    <th className="p-2.5 border-r border-slate-700 text-center font-mono" title="Apenas propostas com status atribuído">Tratativas (c/ Status)</th>
                     <th className="p-2.5 border-r border-slate-700 text-center text-emerald-300 font-mono">Com Sucesso</th>
                     <th className="p-2.5 border-r border-slate-700 text-center text-rose-300 font-mono">Sem Sucesso</th>
                     <th className="p-2.5 border-r border-slate-700 text-center text-amber-300 font-mono">Sem Resposta</th>
-                    <th className="p-2.5 border-r border-slate-700 text-center text-slate-300 font-mono" title="Ações/Edições em registros que ainda não tiveram status definido">Sem Status</th>
+                    <th className="p-2.5 border-r border-slate-700 text-center text-slate-300 font-mono" title="Ações e edições realizadas em registros que ainda não tiveram status definido (não computadas como tratativa)">Ações s/ Status</th>
                     <th className="p-2.5 border-r border-slate-700 text-center font-mono">Taxa de Sucesso</th>
                     <th className="p-2.5 border-r border-slate-700 text-center">Último Horário</th>
                     <th className="p-2.5">Bases Trabalhadas</th>
@@ -568,6 +595,21 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
                   {summary?.userStats?.map(u => (
                     <option key={u.username} value={u.username}>{u.username}</option>
                   ))}
+                </select>
+              </div>
+
+              {/* Status filter */}
+              <div className="flex items-center gap-1 bg-[#EBEAE5] border border-[#141414] px-2 py-1">
+                <CheckCircle2 size={12} className="text-slate-700" />
+                <span className="text-[10px] font-bold uppercase text-slate-700">Status:</span>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  className="bg-transparent text-xs font-bold text-[#141414] outline-none cursor-pointer"
+                >
+                  <option value="STATUS_ONLY">Apenas com Status (Tratadas)</option>
+                  <option value="ALL">Todos os Registros / Logs</option>
+                  <option value="NO_STATUS">Sem Status (Não Tratadas)</option>
                 </select>
               </div>
 

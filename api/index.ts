@@ -1139,8 +1139,8 @@ app.post("/api/records", async (req, res) => {
     if (newRecord.username || newRecord.data) {
       const clientName = newRecord.data?.nome || newRecord.data?.NOME || newRecord.clientName || '';
       const clientCpf = newRecord.data?.cpf || newRecord.data?.CPF || newRecord.clientCpf || '';
-      const statusValue = newRecord.currentStatus || newRecord.data?.status || newRecord.data?.Status || '';
-      const obsValue = newRecord.currentObs || newRecord.data?.observacaoFinal || newRecord.data?.['Observação final'] || '';
+      const statusValue = newRecord.currentStatus || newRecord.data?.status || newRecord.data?.Status || recordToSave?.data?.status || recordToSave?.data?.Status || '';
+      const obsValue = newRecord.currentObs || newRecord.data?.observacaoFinal || newRecord.data?.['Observação final'] || recordToSave?.data?.observacaoFinal || recordToSave?.data?.['Observação final'] || '';
       
       const actionType = newRecord.data?.status || newRecord.data?.Status ? 'STATUS_CHANGE' : 
                          newRecord.data?.observacaoFinal || newRecord.data?.['Observação final'] ? 'OBSERVACAO_CHANGE' : 'EDICAO';
@@ -1283,6 +1283,8 @@ app.put("/api/records/bulk-update", async (req, res) => {
 
       // Log bulk tratativas
       if (username) {
+        const bulkStatus = updatedData.status || updatedData.Status || '';
+        const bulkObs = updatedData.observacaoFinal || updatedData['Observação final'] || '';
         logTratativa({
           username,
           userRole: userRole || 'editor',
@@ -1290,7 +1292,12 @@ app.put("/api/records/bulk-update", async (req, res) => {
           recordId: ids[0],
           clientName: `${ids.length} clientes atualizados em massa`,
           actionType: 'BULK_UPDATE',
-          details: { updatedCount: ids.length, changes: updatedData }
+          details: { 
+            updatedCount: ids.length, 
+            changes: updatedData,
+            currentStatus: bulkStatus,
+            currentObs: bulkObs
+          }
         }).catch(e => console.warn(e));
       }
     }
@@ -1490,25 +1497,20 @@ app.get("/api/tratativas/stats", async (req, res) => {
       }
     }
 
+    // Helper to verify if status is valid (a proposal without status is NOT treated yet)
+    const isValidStatus = (statusRaw: any): boolean => {
+      if (!statusRaw) return false;
+      const s = String(statusRaw).trim();
+      if (!s || s === '-' || s === '—' || s === '(vazio)' || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined' || s === '*') {
+        return false;
+      }
+      return true;
+    };
+
     // Helper to accurately classify status
-    const classifyStatusOutcome = (statusRaw: string, obsRaw: string, statusConfigs?: any[]): 'Sucesso' | 'Sem Sucesso' | 'Sem Resposta' | 'Outras' => {
+    const classifyStatusOutcome = (statusRaw: string, obsRaw: string, statusConfigs?: any[]): 'Sucesso' | 'Sem Sucesso' | 'Sem Resposta' => {
       const stat = String(statusRaw || '').trim();
       const norm = stat.toLowerCase();
-
-      // If status is empty or non-informative
-      if (!stat || stat === '-' || stat === '—' || stat === '(vazio)' || stat === 'null' || stat === 'undefined') {
-        const obs = String(obsRaw || '').trim().toLowerCase();
-        if (obs.includes('proposta finalizada') || obs.includes('acordo') || obs.includes('paga') || obs.includes('fechado')) {
-          return 'Sucesso';
-        }
-        if (obs.includes('contato sem sucesso') || obs.includes('recusado') || obs.includes('sem interesse')) {
-          return 'Sem Sucesso';
-        }
-        if (obs.includes('pendente') || obs.includes('caixa postal') || obs.includes('não atende') || obs.includes('nao atende')) {
-          return 'Sem Resposta';
-        }
-        return 'Outras';
-      }
 
       // 1. Check custom statusConfigs from schema
       if (statusConfigs && Array.isArray(statusConfigs) && statusConfigs.length > 0) {
@@ -1565,6 +1567,7 @@ app.get("/api/tratativas/stats", async (req, res) => {
     let semSucessoToday = 0;
     let semRespostaToday = 0;
     let outrasToday = 0;
+    let totalTratativasComStatusToday = 0;
 
     const hourlyMap = new Map<string, number>();
     for (let h = 7; h <= 20; h++) {
@@ -1590,12 +1593,6 @@ app.get("/api/tratativas/stats", async (req, res) => {
         userStatsMap.set(log.username, stat);
       }
 
-      stat.totalTratativas++;
-      stat.lastActivityTime = log.createdAt;
-      if (log.reportId) {
-        stat.reportsWorked.add(schemaNameMap.get(log.reportId) || log.reportId);
-      }
-
       // Check status outcome
       const details = log.details || {};
       const changes = details.changes || {};
@@ -1604,6 +1601,28 @@ app.get("/api/tratativas/stats", async (req, res) => {
 
       const statusVal = details.currentStatus || changes.status || changes.Status || changes.STATUS || details.newValue || recData.status || recData.Status || recData.STATUS || '';
       const obsVal = details.currentObs || changes.observacaoFinal || changes['Observação final'] || changes['Observacao final'] || recData.observacaoFinal || recData['Observação final'] || recData['Observacao final'] || '';
+
+      const count = (log.actionType === 'BULK_UPDATE' && details.updatedCount && Number(details.updatedCount) > 0)
+        ? Number(details.updatedCount)
+        : 1;
+
+      // Only proposals WITH status are considered treated!
+      const hasStatus = isValidStatus(statusVal);
+
+      if (!hasStatus) {
+        // Record without status is NOT treated yet
+        stat.outras += count;
+        outrasToday += count;
+        return; // Skip counting in treated proposals!
+      }
+
+      // Count as treated proposal
+      stat.totalTratativas += count;
+      totalTratativasComStatusToday += count;
+      stat.lastActivityTime = log.createdAt;
+      if (log.reportId) {
+        stat.reportsWorked.add(schemaNameMap.get(log.reportId) || log.reportId);
+      }
 
       const schemaObj = schemaMap.get(log.reportId);
       let schemaStatusConfigs = schemaObj?.statusConfigs || [];
@@ -1617,30 +1636,27 @@ app.get("/api/tratativas/stats", async (req, res) => {
       const outcome = classifyStatusOutcome(statusVal, obsVal, schemaStatusConfigs);
 
       if (outcome === 'Sucesso') {
-        stat.comSucesso++;
-        comSucessoToday++;
+        stat.comSucesso += count;
+        comSucessoToday += count;
       } else if (outcome === 'Sem Sucesso') {
-        stat.semSucesso++;
-        semSucessoToday++;
-      } else if (outcome === 'Sem Resposta') {
-        stat.semResposta++;
-        semRespostaToday++;
+        stat.semSucesso += count;
+        semSucessoToday += count;
       } else {
-        stat.outras++;
-        outrasToday++;
+        stat.semResposta += count;
+        semRespostaToday += count;
       }
 
-      // Hourly grouping
+      // Hourly grouping (only for treated proposals with status)
       try {
         const logDate = new Date(log.createdAt);
         const hour = logDate.getHours();
         const hourStr = `${hour.toString().padStart(2, '0')}:00`;
-        hourlyMap.set(hourStr, (hourlyMap.get(hourStr) || 0) + 1);
+        hourlyMap.set(hourStr, (hourlyMap.get(hourStr) || 0) + count);
       } catch (e) {}
 
-      // Base grouping
+      // Base grouping (only for treated proposals with status)
       const rId = log.reportId || 'default';
-      baseMap.set(rId, (baseMap.get(rId) || 0) + 1);
+      baseMap.set(rId, (baseMap.get(rId) || 0) + count);
     });
 
     const userStats = Array.from(userStatsMap.values()).map(u => ({
@@ -1659,11 +1675,12 @@ app.get("/api/tratativas/stats", async (req, res) => {
 
     res.json({
       date: targetDate,
-      totalToday: dayLogs.length,
+      totalToday: totalTratativasComStatusToday,
       comSucessoToday,
       semSucessoToday,
       semRespostaToday,
       outrasToday,
+      totalLogsNoDia: dayLogs.length,
       activeUsersCount,
       userStats,
       hourlyDistribution,
