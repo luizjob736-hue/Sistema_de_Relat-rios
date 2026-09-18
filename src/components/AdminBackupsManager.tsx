@@ -171,7 +171,7 @@ export default function AdminBackupsManager({ schemas, onDataRestored, showToast
               FREQUÊNCIA AUTOMÁTICA
             </span>
             <span className="text-sm font-mono font-bold text-emerald-900 block mt-0.5">
-              Diário (00:00) & Contínuo
+              1x ao Dia (Diário Único)
             </span>
             <span className="text-[10px] text-slate-600">
               Armazenado no PostgreSQL e em disco

@@ -486,16 +486,21 @@ async function executeDatabaseBackup(type: 'AUTOMATIC_DAILY' | 'MANUAL' = 'AUTOM
   }
 }
 
-// Automated Daily Backup Schedule Checker
+// Automated Daily Backup Schedule Checker (Runs STRICTLY once a day)
+let isBackupRunning = false;
+
 async function checkAndRunDailyBackup() {
+  if (isBackupRunning) return;
+  
   try {
     const todayStr = new Date().toISOString().split('T')[0];
     let hasTodayBackup = false;
 
     try {
+      // Check if ANY successful backup (AUTOMATIC_DAILY or MANUAL) or automated backup already exists for today's date
       const existing = await sql`
         SELECT id FROM database_backups 
-        WHERE date_str = ${todayStr} AND backup_type = 'AUTOMATIC_DAILY' AND status = 'SUCCESS'
+        WHERE date_str = ${todayStr} AND status = 'SUCCESS'
         LIMIT 1
       `;
       if (existing && existing.length > 0) {
@@ -503,25 +508,31 @@ async function checkAndRunDailyBackup() {
       }
     } catch (dbErr) {
       const cache = loadFallbackData();
-      hasTodayBackup = !!(cache.backups || []).find(b => b.dateStr === todayStr && b.backupType === 'AUTOMATIC_DAILY');
+      hasTodayBackup = !!(cache.backups || []).find(b => b.dateStr === todayStr && b.status === 'SUCCESS');
     }
 
     if (!hasTodayBackup) {
-      console.log(`[Auto Backup] No automated daily backup found for ${todayStr}. Executing automatic backup...`);
-      await executeDatabaseBackup('AUTOMATIC_DAILY');
+      isBackupRunning = true;
+      console.log(`[Auto Backup] Nenhum backup encontrado para o dia ${todayStr}. Executando backup automático diário (único no dia)...`);
+      try {
+        await executeDatabaseBackup('AUTOMATIC_DAILY');
+      } finally {
+        isBackupRunning = false;
+      }
     }
   } catch (err) {
-    console.error("[Auto Backup] Error during daily backup verification:", err);
+    isBackupRunning = false;
+    console.error("[Auto Backup] Erro durante verificação do backup diário:", err);
   }
 }
 
-// Check on startup after 10 seconds, then every 30 minutes
+// Check on startup after 15 seconds, then periodically to ensure it executes when a new day starts
 setTimeout(() => {
   checkAndRunDailyBackup();
-}, 10000);
+}, 15000);
 setInterval(() => {
   checkAndRunDailyBackup();
-}, 30 * 60 * 1000);
+}, 60 * 60 * 1000); // Check once per hour
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
