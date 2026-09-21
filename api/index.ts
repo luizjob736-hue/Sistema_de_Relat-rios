@@ -333,6 +333,38 @@ function markUserActivity(username: string, role?: string, forceStatus?: 'active
   });
 }
 
+// Helpers for Brazilian Timezone (America/Sao_Paulo)
+function getBrasiliaDateStr(dateInput: string | Date = new Date()): string {
+  try {
+    const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+    if (isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(d);
+  } catch (e) {
+    return new Date().toISOString().split('T')[0];
+  }
+}
+
+function getBrasiliaHour(dateInput: string | Date): number {
+  try {
+    const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+    if (isNaN(d.getTime())) return 0;
+    const hourStr = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: 'numeric',
+      hour12: false
+    }).format(d);
+    return parseInt(hourStr, 10) % 24;
+  } catch (e) {
+    const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+    return d.getHours();
+  }
+}
+
 // Helper to log Tratativas
 async function logTratativa(entry: {
   username: string;
@@ -349,7 +381,7 @@ async function logTratativa(entry: {
   }
   const id = `trat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date();
-  const dateStr = now.toISOString().split('T')[0];
+  const dateStr = getBrasiliaDateStr(now);
   const payload = {
     id,
     createdAt: now.toISOString(),
@@ -1409,7 +1441,7 @@ app.get("/api/tratativas", async (req, res) => {
         logs = await sql`
           SELECT id, created_at as "createdAt", date_str as "dateStr", username, user_role as "userRole", report_id as "reportId", record_id as "recordId", client_name as "clientName", client_cpf as "clientCpf", action_type as "actionType", details
           FROM audit_tratativas
-          WHERE date_str = ${String(date)} AND username = ${String(username)}
+          WHERE (date_str = ${String(date)} OR date_trunc('day', (created_at AT TIME ZONE 'America/Sao_Paulo')) = ${String(date)}::date) AND username = ${String(username)}
           ORDER BY created_at DESC
           LIMIT ${Number(limit)}
         `;
@@ -1417,7 +1449,7 @@ app.get("/api/tratativas", async (req, res) => {
         logs = await sql`
           SELECT id, created_at as "createdAt", date_str as "dateStr", username, user_role as "userRole", report_id as "reportId", record_id as "recordId", client_name as "clientName", client_cpf as "clientCpf", action_type as "actionType", details
           FROM audit_tratativas
-          WHERE date_str = ${String(date)}
+          WHERE date_str = ${String(date)} OR date_trunc('day', (created_at AT TIME ZONE 'America/Sao_Paulo')) = ${String(date)}::date
           ORDER BY created_at DESC
           LIMIT ${Number(limit)}
         `;
@@ -1440,7 +1472,7 @@ app.get("/api/tratativas", async (req, res) => {
     } catch (dbErr) {
       const cache = loadFallbackData();
       logs = (cache.tratativas || []);
-      if (date) logs = logs.filter(l => l.dateStr === date);
+      if (date) logs = logs.filter(l => l.dateStr === date || (l.createdAt && getBrasiliaDateStr(l.createdAt) === date));
       if (username) logs = logs.filter(l => l.username === username);
       logs = logs.slice(0, Number(limit));
     }
@@ -1454,7 +1486,7 @@ app.get("/api/tratativas", async (req, res) => {
 
 app.get("/api/tratativas/stats", async (req, res) => {
   try {
-    const targetDate = (req.query.date as string) || new Date().toISOString().split('T')[0];
+    const targetDate = (req.query.date as string) || getBrasiliaDateStr();
     
     let allUsers: any[] = [];
     let dayLogs: any[] = [];
@@ -1466,7 +1498,7 @@ app.get("/api/tratativas/stats", async (req, res) => {
         sql`
           SELECT id, created_at as "createdAt", date_str as "dateStr", username, user_role as "userRole", report_id as "reportId", record_id as "recordId", client_name as "clientName", client_cpf as "clientCpf", action_type as "actionType", details
           FROM audit_tratativas
-          WHERE date_str = ${targetDate}
+          WHERE date_str = ${targetDate} OR date_trunc('day', (created_at AT TIME ZONE 'America/Sao_Paulo')) = ${targetDate}::date
           ORDER BY created_at ASC
         `,
         sql`SELECT id, name, fields FROM report_schemas`
@@ -1474,7 +1506,7 @@ app.get("/api/tratativas/stats", async (req, res) => {
     } catch (dbErr) {
       const cache = loadFallbackData();
       allUsers = cache.users || [];
-      dayLogs = (cache.tratativas || []).filter(l => l.dateStr === targetDate);
+      dayLogs = (cache.tratativas || []).filter(l => l.dateStr === targetDate || (l.createdAt && getBrasiliaDateStr(l.createdAt) === targetDate));
       schemas = cache.schemas || [];
     }
 
@@ -1657,10 +1689,9 @@ app.get("/api/tratativas/stats", async (req, res) => {
         semRespostaToday += count;
       }
 
-      // Hourly grouping (only for treated proposals with status)
+      // Hourly grouping (only for treated proposals with status, in Brasilia time)
       try {
-        const logDate = new Date(log.createdAt);
-        const hour = logDate.getHours();
+        const hour = getBrasiliaHour(log.createdAt);
         const hourStr = `${hour.toString().padStart(2, '0')}:00`;
         hourlyMap.set(hourStr, (hourlyMap.get(hourStr) || 0) + count);
       } catch (e) {}

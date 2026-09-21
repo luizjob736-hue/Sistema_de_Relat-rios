@@ -27,7 +27,18 @@ interface AdminProductivityDashboardProps {
 }
 
 export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }: AdminProductivityDashboardProps) {
-  const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(new Date());
+    } catch (e) {
+      return new Date().toISOString().split('T')[0];
+    }
+  });
   const [summary, setSummary] = useState<DailyTratativasSummary | null>(null);
   const [logs, setLogs] = useState<TratativaLog[]>([]);
   const [presences, setPresences] = useState<UserPresence[]>([]);
@@ -74,7 +85,17 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
   const setQuickDate = (daysAgo: number) => {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    try {
+      const str = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(d);
+      setSelectedDate(str);
+    } catch (e) {
+      setSelectedDate(d.toISOString().split('T')[0]);
+    }
   };
 
   const isStatusPresent = (log: TratativaLog): boolean => {
