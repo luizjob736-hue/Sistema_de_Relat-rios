@@ -461,15 +461,15 @@ export default function AdminProductivityDashboard({ schemas, onRefreshTrigger }
                                 const isUserActive = userPres?.status === 'active';
                                 const isUserInactive = userPres?.status === 'inactive';
                                 return (
-                                  <div className="flex items-center gap-1.5" title={isUserActive ? "Conectado e Ativo agora" : isUserInactive ? "Inativo por ausência (>15 min sem uso)" : "Offline"}>
+                                  <div className="flex items-center gap-1.5" title={isUserActive ? "Conectado e Ativo agora" : isUserInactive ? "Economia de Dados / Inativo (7 a 15 min sem uso)" : "Offline (Desconectado)"}>
                                     <span className={`w-2 h-2 rounded-full ${
                                       isUserActive ? 'bg-emerald-500 animate-pulse' :
                                       isUserInactive ? 'bg-amber-500' : 'bg-slate-400'
                                     }`} />
                                     <span className="font-bold text-[#141414]">{u.username}</span>
                                     {isUserInactive && (
-                                      <span className="text-[9px] font-mono font-bold bg-amber-200 text-amber-900 px-1 py-0.2 border border-amber-400 flex items-center gap-0.5">
-                                        <Moon size={9} /> Inativo
+                                      <span className="text-[9px] font-mono font-bold bg-amber-200 text-amber-900 px-1 py-0.2 border border-amber-400 flex items-center gap-0.5" title="Modo economia de dados (7 a 15 min)">
+                                        <Moon size={9} /> Economia
                                       </span>
                                     )}
                                   </div>

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Lock, User, ShieldCheck } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Lock, User, ShieldCheck, Clock, ShieldAlert } from "lucide-react";
 import { UserRole } from "../types";
 
 interface LoginScreenProps {
@@ -10,6 +10,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [usernameInput, setUsernameInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [error, setError] = useState("");
+  const [infoMessage, setInfoMessage] = useState<string | null>(() => {
+    try {
+      const reason = sessionStorage.getItem("crm_logout_reason");
+      if (reason === "inactivity_15min") {
+        sessionStorage.removeItem("crm_logout_reason");
+        return "Sua sessão foi encerrada automaticamente após 15 minutos sem uso para segurança e economia de dados. Faça login novamente para continuar.";
+      }
+    } catch (e) {}
+    return null;
+  });
   const [loading, setLoading] = useState(false);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -53,6 +63,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </p>
         </div>
 
+        {infoMessage && (
+          <div className="mb-4 bg-amber-50 border-2 border-amber-600 text-amber-950 p-3 text-xs flex items-start gap-2.5 shadow-[2px_2px_0px_#141414]">
+            <Clock size={18} className="text-amber-700 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block uppercase text-[10px] text-amber-900 tracking-wider">
+                Desconexão por Inatividade (15 min)
+              </span>
+              <span className="leading-snug">{infoMessage}</span>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 bg-red-100 border-2 border-red-600 text-red-700 px-4 py-2 text-xs font-mono font-bold uppercase">
             {error}
@@ -73,7 +95,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 required
                 placeholder="Ex: Admin ou Operador 1"
                 value={usernameInput}
-                onChange={(e) => setUsernameInput(e.target.value)}
+                onChange={(e) => {
+                  setUsernameInput(e.target.value);
+                  if (infoMessage) setInfoMessage(null);
+                }}
                 className="w-full pl-10 pr-4 py-2.5 bg-[#F2F1EB] border-2 border-[#141414] text-sm font-medium focus:outline-none focus:bg-white"
               />
             </div>
@@ -92,7 +117,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 required
                 placeholder="••••••"
                 value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  if (infoMessage) setInfoMessage(null);
+                }}
                 className="w-full pl-10 pr-4 py-2.5 bg-[#F2F1EB] border-2 border-[#141414] text-sm font-medium focus:outline-none focus:bg-white"
               />
             </div>
@@ -101,7 +129,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-2 bg-[#141414] text-white font-black uppercase tracking-widest py-3 border-2 border-[#141414] shadow-[4px_4px_0px_#C5C4C0] hover:bg-black active:translate-y-1 active:translate-x-1 active:shadow-none transition-all text-xs disabled:opacity-50"
+            className="w-full mt-2 bg-[#141414] text-white font-black uppercase tracking-widest py-3 border-2 border-[#141414] shadow-[4px_4px_0px_#C5C4C0] hover:bg-black active:translate-y-1 active:translate-x-1 active:shadow-none transition-all text-xs disabled:opacity-50 cursor-pointer"
           >
             {loading ? "Entrando..." : "Entrar no Sistema"}
           </button>

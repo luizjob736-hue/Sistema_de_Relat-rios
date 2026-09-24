@@ -463,7 +463,7 @@ function App() {
     }
   }, [fetchTodayTratativasCount, userRole]);
 
-  // Per-User Inactivity & Sleep Mode (15 min without user interaction)
+  // Per-User Inactivity: Data Saver Mode (7 to 15 min) & Auto Logout (15 min)
   const isIdleRef = useRef<boolean>(false);
 
   const handleUserWakeUp = useCallback(async () => {
@@ -477,15 +477,24 @@ function App() {
     showToast("Sessão reativada! Sincronização restabelecida.");
   }, [flushPendingQueue, fetchData]);
 
-  const handleUserGoIdle = useCallback(() => {
+  const handleUserEnterDataSaver = useCallback(() => {
     isIdleRef.current = true;
   }, []);
 
-  const { isIdle, idleSince, wakeUp } = useUserInactivity({
+  const handleUserAutoLogout = useCallback(() => {
+    try {
+      sessionStorage.setItem("crm_logout_reason", "inactivity_15min");
+    } catch (e) {}
+    handleLogout();
+  }, []);
+
+  const { isDataSaver, idleSince, remainingSecondsToLogout, wakeUp } = useUserInactivity({
     currentUser,
     userRole,
-    timeoutMs: 15 * 60 * 1000, // 15 minutos por usuário
-    onIdle: handleUserGoIdle,
+    dataSaverTimeoutMs: 7 * 60 * 1000, // Modo de economia dos 7min aos 15min
+    logoutTimeoutMs: 15 * 60 * 1000,    // Logout automático após 15 minutos sem uso
+    onDataSaver: handleUserEnterDataSaver,
+    onAutoLogout: handleUserAutoLogout,
     onWakeUp: handleUserWakeUp
   });
 
@@ -1397,11 +1406,12 @@ function App() {
         />
       )}
 
-      {/* Per-User Inactivity Modal (Wakes on any click) */}
+      {/* Modo de Economia de Dados (7min - 15min) & Aviso de Desconexão */}
       <IdleSessionModal
-        isOpen={isIdle}
+        isOpen={isDataSaver}
         username={currentUser || ''}
         idleSince={idleSince}
+        remainingSecondsToLogout={remainingSecondsToLogout}
         onWakeUp={wakeUp}
       />
     </div>

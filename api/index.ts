@@ -291,7 +291,7 @@ async function initDb() {
 initDb();
 
 // ==========================================
-// USER PRESENCE & INACTIVITY TRACKER (PER USER - 15 MIN TIMEOUT)
+// USER PRESENCE & INACTIVITY TRACKER (PER USER - 7 MIN DATA SAVER & 15 MIN LOGOUT)
 // ==========================================
 export interface UserPresenceRecord {
   userId?: string;
@@ -302,7 +302,8 @@ export interface UserPresenceRecord {
   lastActive: number; // timestamp ms
 }
 
-const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos de inatividade
+const DATA_SAVER_TIMEOUT_MS = 7 * 60 * 1000; // 7 minutos de inatividade (Modo Economia de Dados)
+const LOGOUT_TIMEOUT_MS = 15 * 60 * 1000;     // 15 minutos de inatividade (Logout automático)
 const userPresenceRegistry = new Map<string, UserPresenceRecord>();
 
 function markUserActivity(username: string, role?: string, forceStatus?: 'active' | 'inactive') {
@@ -318,7 +319,7 @@ function markUserActivity(username: string, role?: string, forceStatus?: 'active
       userRole: role || existing?.userRole || 'editor',
       status: 'inactive',
       lastSeen: now,
-      lastActive: existing?.lastActive || (now - INACTIVITY_TIMEOUT_MS)
+      lastActive: existing?.lastActive || (now - DATA_SAVER_TIMEOUT_MS)
     });
     return;
   }
@@ -653,9 +654,9 @@ app.get("/api/users/presence", (req, res) => {
       const seenTime = now - p.lastSeen;
       let computedStatus: 'active' | 'inactive' | 'offline' = p.status;
 
-      if (seenTime > 30 * 60 * 1000) {
+      if (seenTime > LOGOUT_TIMEOUT_MS) {
         computedStatus = 'offline';
-      } else if (p.status === 'inactive' || idleTime >= INACTIVITY_TIMEOUT_MS) {
+      } else if (p.status === 'inactive' || idleTime >= DATA_SAVER_TIMEOUT_MS) {
         computedStatus = 'inactive';
       } else {
         computedStatus = 'active';
