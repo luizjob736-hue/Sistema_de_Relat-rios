@@ -5,22 +5,24 @@ import {
   Database, 
   RotateCw, 
   LogOut, 
-  ShieldAlert,
-  CalendarCheck,
-  CheckCircle2,
-  Loader2,
-  CloudOff,
-  LayoutGrid,
-  Shield
+  ShieldAlert, 
+  CheckCircle2, 
+  Loader2, 
+  CloudOff, 
+  Shield,
+  Calculator,
+  TrendingUp
 } from "lucide-react";
-import { ReportSchema, UserRole } from "../types";
+import { ReportSchema, UserRole, DynamicRecord } from "../types";
 import AdminProductivityDashboard from "./AdminProductivityDashboard";
 import AdminBackupsManager from "./AdminBackupsManager";
+import AdminSomaseManagerialView from "./AdminSomaseManagerialView";
 
 interface AdminManagementPageProps {
   currentUser: string;
   userRole: UserRole;
   schemas: ReportSchema[];
+  records: DynamicRecord[];
   todayTratativasCount: number;
   syncStatus: 'saved' | 'saving' | 'pending';
   pendingCount: number;
@@ -31,13 +33,14 @@ interface AdminManagementPageProps {
   onLogout: () => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   onOpenUserManagement?: () => void;
-  initialTab?: 'tratativas' | 'backups';
+  initialTab?: 'tratativas' | 'gerencial_somase' | 'backups';
 }
 
 export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
   currentUser,
   userRole,
   schemas,
+  records,
   todayTratativasCount,
   syncStatus,
   pendingCount,
@@ -50,7 +53,7 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
   onOpenUserManagement,
   initialTab = 'tratativas'
 }) => {
-  const [activeTab, setActiveTab] = useState<'tratativas' | 'backups'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'tratativas' | 'gerencial_somase' | 'backups'>(initialTab);
 
   if (userRole !== 'admin') {
     return (
@@ -60,7 +63,7 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
         </div>
         <h2 className="text-xl font-black uppercase text-red-900">Acesso Restrito ao Administrador</h2>
         <p className="text-sm font-mono text-slate-600 mt-2 mb-6 max-w-md">
-          Apenas usuários com permissão de Administrador têm acesso à central de produtividade e backups.
+          Apenas usuários com permissão de Administrador têm acesso à central de produtividade, cálculos gerenciais e backups.
         </p>
         <button
           onClick={onBackToBases}
@@ -121,7 +124,7 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
                 )}
               </div>
               <p className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest mt-0.5">
-                Controle de Produtividade Diária & Rotina de Backups
+                Produtividade Diária • Visão Gerencial SOMASE • Rotina de Backups
               </p>
             </div>
           </div>
@@ -159,10 +162,11 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
         </div>
 
         {/* Dedicated Admin Sub-navigation Tabs */}
-        <div className="px-5 flex items-center gap-2 bg-[#E4E3E0] pt-1.5 border-t-2 border-[#141414]">
+        <div className="px-5 flex items-center gap-2 bg-[#E4E3E0] pt-1.5 border-t-2 border-[#141414] overflow-x-auto hide-scrollbar">
+          {/* Tab 1: Tratativas Diárias */}
           <button
             onClick={() => setActiveTab('tratativas')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider border-2 border-b-0 border-[#141414] rounded-t-sm transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider border-2 border-b-0 border-[#141414] rounded-t-sm transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'tratativas'
                 ? "bg-white text-amber-950 shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] font-black"
                 : "bg-[#D1D0CC] text-[#141414]/70 hover:bg-[#DDDCD7] hover:text-[#141414]"
@@ -177,15 +181,34 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
             </span>
           </button>
 
+          {/* Tab 2: Visão Gerencial (SOMASE & Lucro) */}
           <button
-            onClick={() => setActiveTab('backups')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider border-2 border-b-0 border-[#141414] rounded-t-sm transition-all cursor-pointer ${
-              activeTab === 'backups'
+            onClick={() => setActiveTab('gerencial_somase')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider border-2 border-b-0 border-[#141414] rounded-t-sm transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'gerencial_somase'
                 ? "bg-white text-emerald-950 shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] font-black"
                 : "bg-[#D1D0CC] text-[#141414]/70 hover:bg-[#DDDCD7] hover:text-[#141414]"
             }`}
           >
-            <Database size={15} className={activeTab === 'backups' ? "text-emerald-800" : "text-slate-600"} />
+            <Calculator size={15} className={activeTab === 'gerencial_somase' ? "text-emerald-700" : "text-slate-600"} />
+            <span>Visão Gerencial (SOMASE & Lucro)</span>
+            <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded ${
+              activeTab === 'gerencial_somase' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 text-emerald-900 border border-emerald-400'
+            }`}>
+              Visualização
+            </span>
+          </button>
+
+          {/* Tab 3: Backups & Downloads */}
+          <button
+            onClick={() => setActiveTab('backups')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider border-2 border-b-0 border-[#141414] rounded-t-sm transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'backups'
+                ? "bg-white text-purple-950 shadow-[0px_-2px_0px_rgba(0,0,0,1)] z-10 -mb-[2px] font-black"
+                : "bg-[#D1D0CC] text-[#141414]/70 hover:bg-[#DDDCD7] hover:text-[#141414]"
+            }`}
+          >
+            <Database size={15} className={activeTab === 'backups' ? "text-purple-800" : "text-slate-600"} />
             <span>Backups Automáticos & Download de Bases</span>
           </button>
         </div>
@@ -194,14 +217,26 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
       {/* Main Dedicated Content View */}
       <main className="flex-1 overflow-hidden p-6">
         <section className="h-full bg-white border-4 border-[#141414] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col relative z-0 overflow-y-auto">
-          {activeTab === 'tratativas' ? (
+          {activeTab === 'tratativas' && (
             <div className="p-6">
               <AdminProductivityDashboard 
                 schemas={schemas} 
                 onRefreshTrigger={onRefresh} 
               />
             </div>
-          ) : (
+          )}
+
+          {activeTab === 'gerencial_somase' && (
+            <div className="p-6">
+              <AdminSomaseManagerialView
+                schemas={schemas}
+                records={records}
+                showToast={showToast}
+              />
+            </div>
+          )}
+
+          {activeTab === 'backups' && (
             <div className="p-6">
               <AdminBackupsManager 
                 schemas={schemas} 
@@ -215,3 +250,5 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
     </div>
   );
 };
+
+export default AdminManagementPage;

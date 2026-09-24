@@ -17,7 +17,8 @@ import {
   CalendarCheck,
   Lock,
   Unlock,
-  ShieldAlert
+  ShieldAlert,
+  Calculator
 } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
@@ -56,6 +57,8 @@ function App() {
       return 'bases';
     }
   });
+
+  const [adminInitialTab, setAdminInitialTab] = useState<'tratativas' | 'gerencial_somase' | 'backups'>('tratativas');
 
   const [schemas, setSchemas] = useState<ReportSchema[]>([]);
   const [activeSchemaId, setActiveSchemaId] = useState<string>('');
@@ -548,6 +551,7 @@ function App() {
           currentUser={currentUser}
           userRole={userRole}
           schemas={schemas}
+          records={records}
           todayTratativasCount={todayTratativasCount}
           syncStatus={syncStatus}
           pendingCount={pendingCount}
@@ -561,11 +565,13 @@ function App() {
           onLogout={handleLogout}
           showToast={showToast}
           onOpenUserManagement={() => setIsUserManagementOpen(true)}
+          initialTab={adminInitialTab}
         />
         <IdleSessionModal
-          isOpen={isIdle}
+          isOpen={isDataSaver}
           username={currentUser}
           idleSince={idleSince}
+          remainingSecondsToLogout={remainingSecondsToLogout}
           onWakeUp={wakeUp}
         />
       </>
@@ -1119,22 +1125,35 @@ function App() {
           </div>
           
           <div className="flex items-center gap-2">
-            {/* Admin Dedicated Page Switcher Button */}
+            {/* Admin Dedicated Page Switcher Buttons */}
             {userRole === 'admin' && (
-              <button
-                onClick={() => {
-                  setCurrentPage('admin_management');
-                  localStorage.setItem("crm_current_page", "admin_management");
-                }}
-                title="Abrir tela exclusiva de Gestão: Tratativas Diárias dos Operadores e Backups Automáticos"
-                className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase transition-all border-2 border-[#141414] bg-amber-300 text-amber-950 hover:bg-amber-400 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer"
-              >
-                <Activity size={15} className="text-amber-900" />
-                <span>Painel de Gestão (Tratativas & Backups)</span>
-                <span className="bg-[#141414] text-white px-1.5 py-0.5 text-[10px] font-mono font-bold rounded-sm">
-                  {todayTratativasCount} hoje
-                </span>
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setAdminInitialTab('tratativas');
+                    setCurrentPage('admin_management');
+                    localStorage.setItem("crm_current_page", "admin_management");
+                  }}
+                  title="Abrir Painel de Gestão e Produtividade das Tratativas"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black uppercase transition-all border-2 border-[#141414] bg-amber-300 text-amber-950 hover:bg-amber-400 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer"
+                >
+                  <Activity size={14} className="text-amber-900" />
+                  <span>Tratativas ({todayTratativasCount})</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setAdminInitialTab('gerencial_somase');
+                    setCurrentPage('admin_management');
+                    localStorage.setItem("crm_current_page", "admin_management");
+                  }}
+                  title="Abrir Visão Gerencial com Cálculos SOMASE de Lucro e Tratativas"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black uppercase transition-all border-2 border-[#141414] bg-emerald-300 text-emerald-950 hover:bg-emerald-400 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer"
+                >
+                  <Calculator size={14} className="text-emerald-900" />
+                  <span>Visão Gerencial (SOMASE)</span>
+                </button>
+              </>
             )}
 
             <button
