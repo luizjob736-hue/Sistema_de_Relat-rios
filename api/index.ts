@@ -567,8 +567,87 @@ setInterval(() => {
   checkAndRunDailyBackup();
 }, 60 * 60 * 1000); // Check once per hour
 
+// ==========================================
+// MAINTENANCE MODE ENGINE
+// ==========================================
+const MAINTENANCE_FILE = path.join(process.cwd(), "maintenance_config.json");
+
+export interface MaintenanceConfig {
+  enabled: boolean;
+  message: string;
+  enabledAt: string | null;
+  enabledBy: string | null;
+}
+
+function loadMaintenanceConfig(): MaintenanceConfig {
+  const defaultConfig: MaintenanceConfig = {
+    enabled: true, // Default to true as explicitly requested by user
+    message: "O sistema está temporariamente indisponível devido a uma manutenção programada. Por favor, tente novamente em breve.",
+    enabledAt: new Date().toISOString(),
+    enabledBy: "Administrador"
+  };
+
+  try {
+    if (fs.existsSync(MAINTENANCE_FILE)) {
+      const content = fs.readFileSync(MAINTENANCE_FILE, "utf-8");
+      const parsed = JSON.parse(content);
+      return {
+        enabled: parsed.enabled !== undefined ? Boolean(parsed.enabled) : true,
+        message: parsed.message || defaultConfig.message,
+        enabledAt: parsed.enabledAt || defaultConfig.enabledAt,
+        enabledBy: parsed.enabledBy || defaultConfig.enabledBy
+      };
+    } else {
+      fs.writeFileSync(MAINTENANCE_FILE, JSON.stringify(defaultConfig, null, 2), "utf-8");
+      return defaultConfig;
+    }
+  } catch (e) {
+    return defaultConfig;
+  }
+}
+
+function saveMaintenanceConfig(config: MaintenanceConfig) {
+  try {
+    fs.writeFileSync(MAINTENANCE_FILE, JSON.stringify(config, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Failed to save maintenance config", e);
+  }
+}
+
 const app = express();
 app.use(express.json({ limit: '50mb' }));
+
+// Maintenance State Endpoints
+app.get("/api/maintenance", (req, res) => {
+  try {
+    const config = loadMaintenanceConfig();
+    res.json(config);
+  } catch (e) {
+    res.status(500).json({ error: "Failed to load maintenance config" });
+  }
+});
+
+app.post("/api/maintenance", (req, res) => {
+  try {
+    const { enabled, message, userRole, username } = req.body;
+    if (userRole !== 'admin') {
+      return res.status(403).json({ error: "Apenas Administradores podem gerenciar o modo de manutenção." });
+    }
+
+    const current = loadMaintenanceConfig();
+    const nextConfig: MaintenanceConfig = {
+      enabled: Boolean(enabled),
+      message: message ? String(message).trim() : current.message,
+      enabledAt: enabled ? (current.enabledAt || new Date().toISOString()) : null,
+      enabledBy: username || "Administrador"
+    };
+
+    saveMaintenanceConfig(nextConfig);
+    res.json({ success: true, ...nextConfig });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to update maintenance config" });
+  }
+});
 
 // Auth Login
 app.post("/api/auth/login", async (req, res) => {
@@ -595,6 +674,14 @@ app.post("/api/auth/login", async (req, res) => {
     }
     if (user.password !== password) {
       return res.status(401).json({ error: "Senha incorreta" });
+    }
+
+    // Check if system is in maintenance mode (Only Admin can bypass)
+    const mConfig = loadMaintenanceConfig();
+    if (mConfig.enabled && user.role !== 'admin') {
+      return res.status(503).json({
+        error: `SISTEMA EM MANUTENÇÃO: ${mConfig.message}`
+      });
     }
 
     // Check if user is blocked by Administrator (Admin cannot be blocked)

@@ -18,7 +18,8 @@ import {
   Lock,
   Unlock,
   ShieldAlert,
-  Calculator
+  Calculator,
+  Wrench
 } from "lucide-react";
 import { ImportModal } from "./components/ImportModal";
 import { ImportProgressModal, ImportProgressState } from "./components/ImportProgressModal";
@@ -30,6 +31,8 @@ import { UndoDeduplicationBanner } from "./components/UndoDeduplicationBanner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AdminManagementPage } from "./components/AdminManagementPage";
 import { IdleSessionModal } from "./components/IdleSessionModal";
+import { MaintenanceScreen } from "./components/MaintenanceScreen";
+import { MaintenanceControlModal } from "./components/MaintenanceControlModal";
 import { useUserInactivity } from "./hooks/useUserInactivity";
 import { DynamicRecord, ReportSchema, UserRole, defaultSchema, DeduplicationSession, GlobalSortConfig } from "./types";
 
@@ -102,8 +105,56 @@ function App() {
   });
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isMaintenanceControlModalOpen, setIsMaintenanceControlModalOpen] = useState(false);
   const [editingSchema, setEditingSchema] = useState<ReportSchema | undefined>();
   const [isLoading, setIsLoading] = useState(true);
+
+  // Maintenance Mode Tracking
+  const [maintenanceConfig, setMaintenanceConfig] = useState<{
+    enabled: boolean;
+    message: string;
+    enabledAt: string | null;
+  }>({
+    enabled: true, // Default to true as explicitly requested by user right now
+    message: "O sistema está temporariamente indisponível devido a uma manutenção programada.",
+    enabledAt: new Date().toISOString()
+  });
+
+  const fetchMaintenanceConfig = useCallback(async () => {
+    try {
+      const res = await fetch("/api/maintenance");
+      if (res.ok) {
+        const data = await res.json();
+        setMaintenanceConfig(data);
+      }
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    fetchMaintenanceConfig();
+    const interval = setInterval(fetchMaintenanceConfig, 10000);
+    return () => clearInterval(interval);
+  }, [fetchMaintenanceConfig]);
+
+  const handleToggleMaintenance = async (enabled: boolean, message: string) => {
+    const res = await fetch("/api/maintenance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled,
+        message,
+        userRole: userRole || 'admin',
+        username: currentUser || 'Administrador'
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setMaintenanceConfig(data);
+    } else {
+      const errData = await res.json();
+      throw new Error(errData.error || "Failed to update maintenance");
+    }
+  };
 
   // Toasts
   const [toastMessage, setToastMessage] = useState("");
@@ -540,7 +591,31 @@ function App() {
     await fetchData(false, true);
   };
 
+  // Maintenance Mode Interception Check
+  const isBlockedByMaintenance = maintenanceConfig.enabled && userRole !== 'admin';
+
+  if (isBlockedByMaintenance) {
+    return (
+      <MaintenanceScreen
+        message={maintenanceConfig.message}
+        enabledAt={maintenanceConfig.enabledAt}
+        onRefreshStatus={fetchMaintenanceConfig}
+        onAdminBypassLogin={handleLogin}
+      />
+    );
+  }
+
   if (!currentUser) {
+    if (maintenanceConfig.enabled) {
+      return (
+        <MaintenanceScreen
+          message={maintenanceConfig.message}
+          enabledAt={maintenanceConfig.enabledAt}
+          onRefreshStatus={fetchMaintenanceConfig}
+          onAdminBypassLogin={handleLogin}
+        />
+      );
+    }
     return <LoginScreen onLogin={handleLogin} />;
   }
 
@@ -565,6 +640,8 @@ function App() {
           onLogout={handleLogout}
           showToast={showToast}
           onOpenUserManagement={() => setIsUserManagementOpen(true)}
+          onOpenMaintenanceControl={() => setIsMaintenanceControlModalOpen(true)}
+          isMaintenanceActive={maintenanceConfig.enabled}
           initialTab={adminInitialTab}
         />
         <IdleSessionModal
@@ -574,6 +651,16 @@ function App() {
           remainingSecondsToLogout={remainingSecondsToLogout}
           onWakeUp={wakeUp}
         />
+        {isMaintenanceControlModalOpen && userRole === 'admin' && (
+          <MaintenanceControlModal
+            isOpen={isMaintenanceControlModalOpen}
+            onClose={() => setIsMaintenanceControlModalOpen(false)}
+            isMaintenanceActive={maintenanceConfig.enabled}
+            currentMessage={maintenanceConfig.message}
+            onToggleMaintenance={handleToggleMaintenance}
+            showToast={showToast}
+          />
+        )}
       </>
     );
   }
@@ -1169,6 +1256,18 @@ function App() {
             {userRole === 'admin' && (
               <>
                 <button
+                  onClick={() => setIsMaintenanceControlModalOpen(true)}
+                  title="Ativar ou desativar o Modo de Manutenção para todos os operadores"
+                  className={`flex items-center gap-1.5 border-2 border-[#141414] px-2.5 py-1 text-[11px] font-black uppercase transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer ${
+                    maintenanceConfig.enabled
+                      ? "bg-red-600 text-white animate-pulse hover:bg-red-700"
+                      : "bg-[#F2F1EB] text-[#141414] hover:bg-[#E4E3E0]"
+                  }`}
+                >
+                  <Wrench size={13} className={maintenanceConfig.enabled ? "text-amber-300" : "text-slate-700"} />
+                  <span>{maintenanceConfig.enabled ? "Manutenção ATIVA" : "Manutenção"}</span>
+                </button>
+                <button
                   onClick={() => setIsUserManagementOpen(true)}
                   className="flex items-center gap-1.5 bg-[#F2F1EB] border-2 border-[#141414] px-2.5 py-1 text-[11px] font-bold uppercase hover:bg-[#E4E3E0] transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none"
                 >
@@ -1421,6 +1520,17 @@ function App() {
           isOpen={isUserManagementOpen}
           onClose={() => setIsUserManagementOpen(false)}
           schemas={schemas}
+          showToast={showToast}
+        />
+      )}
+
+      {isMaintenanceControlModalOpen && userRole === 'admin' && (
+        <MaintenanceControlModal
+          isOpen={isMaintenanceControlModalOpen}
+          onClose={() => setIsMaintenanceControlModalOpen(false)}
+          isMaintenanceActive={maintenanceConfig.enabled}
+          currentMessage={maintenanceConfig.message}
+          onToggleMaintenance={handleToggleMaintenance}
           showToast={showToast}
         />
       )}

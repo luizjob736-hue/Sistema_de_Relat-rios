@@ -11,7 +11,8 @@ import {
   CloudOff, 
   Shield,
   Calculator,
-  TrendingUp
+  TrendingUp,
+  Wrench
 } from "lucide-react";
 import { ReportSchema, UserRole, DynamicRecord } from "../types";
 import AdminProductivityDashboard from "./AdminProductivityDashboard";
@@ -33,6 +34,8 @@ interface AdminManagementPageProps {
   onLogout: () => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   onOpenUserManagement?: () => void;
+  onOpenMaintenanceControl?: () => void;
+  isMaintenanceActive?: boolean;
   initialTab?: 'tratativas' | 'gerencial_somase' | 'backups';
 }
 
@@ -130,6 +133,21 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
+            {onOpenMaintenanceControl && (
+              <button
+                onClick={onOpenMaintenanceControl}
+                title="Ativar ou desativar o Modo de Manutenção do sistema"
+                className={`flex items-center gap-1.5 border-2 border-[#141414] px-3 py-1.5 text-xs font-black uppercase transition-all shadow-[2px_2px_0px_#C5C4C0] active:translate-y-0.5 active:translate-x-0.5 active:shadow-none cursor-pointer ${
+                  isMaintenanceActive
+                    ? 'bg-red-600 text-white animate-pulse hover:bg-red-700'
+                    : 'bg-[#141414] text-white hover:bg-black'
+                }`}
+              >
+                <Wrench size={14} className={isMaintenanceActive ? "text-amber-300" : "text-amber-400"} />
+                <span>{isMaintenanceActive ? "Manutenção ATIVA" : "Modo Manutenção"}</span>
+              </button>
+            )}
+
             {onOpenUserManagement && (
               <button
                 onClick={onOpenUserManagement}
