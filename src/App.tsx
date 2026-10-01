@@ -115,9 +115,9 @@ function App() {
     message: string;
     enabledAt: string | null;
   }>({
-    enabled: true, // Default to true as explicitly requested by user right now
+    enabled: false,
     message: "O sistema está temporariamente indisponível devido a uma manutenção programada.",
-    enabledAt: new Date().toISOString()
+    enabledAt: null
   });
 
   const fetchMaintenanceConfig = useCallback(async () => {

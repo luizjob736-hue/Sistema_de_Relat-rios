@@ -7,7 +7,9 @@ import fs from "fs";
 import path from "path";
 import * as xlsx from "xlsx";
 
-const CACHE_FILE = path.join(process.cwd(), "db_fallback_cache.json");
+const CACHE_FILE = process.env.VERCEL || process.env.NODE_ENV === 'production'
+  ? path.join('/tmp', 'db_fallback_cache.json')
+  : path.join(process.cwd(), "db_fallback_cache.json");
 
 interface FallbackData {
   users: any[];
@@ -71,8 +73,11 @@ function loadFallbackData(): FallbackData {
   };
 
   try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const content = fs.readFileSync(CACHE_FILE, "utf-8");
+    const cwdCache = path.join(process.cwd(), "db_fallback_cache.json");
+    const targetCache = fs.existsSync(CACHE_FILE) ? CACHE_FILE : (fs.existsSync(cwdCache) ? cwdCache : null);
+
+    if (targetCache) {
+      const content = fs.readFileSync(targetCache, "utf-8");
       const parsed = JSON.parse(content);
       const loadedRecords = Array.isArray(parsed.records) ? parsed.records : defaultData.records;
       
@@ -570,7 +575,9 @@ setInterval(() => {
 // ==========================================
 // MAINTENANCE MODE ENGINE
 // ==========================================
-const MAINTENANCE_FILE = path.join(process.cwd(), "maintenance_config.json");
+const MAINTENANCE_FILE = process.env.VERCEL || process.env.NODE_ENV === 'production'
+  ? path.join('/tmp', 'maintenance_config.json')
+  : path.join(process.cwd(), "maintenance_config.json");
 
 export interface MaintenanceConfig {
   enabled: boolean;
@@ -581,24 +588,29 @@ export interface MaintenanceConfig {
 
 function loadMaintenanceConfig(): MaintenanceConfig {
   const defaultConfig: MaintenanceConfig = {
-    enabled: true, // Default to true as explicitly requested by user
+    enabled: false,
     message: "O sistema está temporariamente indisponível devido a uma manutenção programada. Por favor, tente novamente em breve.",
-    enabledAt: new Date().toISOString(),
-    enabledBy: "Administrador"
+    enabledAt: null,
+    enabledBy: null
   };
 
   try {
-    if (fs.existsSync(MAINTENANCE_FILE)) {
-      const content = fs.readFileSync(MAINTENANCE_FILE, "utf-8");
+    const cwdFile = path.join(process.cwd(), "maintenance_config.json");
+    const targetFile = fs.existsSync(MAINTENANCE_FILE) ? MAINTENANCE_FILE : (fs.existsSync(cwdFile) ? cwdFile : null);
+    
+    if (targetFile) {
+      const content = fs.readFileSync(targetFile, "utf-8");
       const parsed = JSON.parse(content);
       return {
-        enabled: parsed.enabled !== undefined ? Boolean(parsed.enabled) : true,
+        enabled: parsed.enabled !== undefined ? Boolean(parsed.enabled) : false,
         message: parsed.message || defaultConfig.message,
-        enabledAt: parsed.enabledAt || defaultConfig.enabledAt,
-        enabledBy: parsed.enabledBy || defaultConfig.enabledBy
+        enabledAt: parsed.enabledAt || null,
+        enabledBy: parsed.enabledBy || null
       };
     } else {
-      fs.writeFileSync(MAINTENANCE_FILE, JSON.stringify(defaultConfig, null, 2), "utf-8");
+      try {
+        fs.writeFileSync(MAINTENANCE_FILE, JSON.stringify(defaultConfig, null, 2), "utf-8");
+      } catch (e) {}
       return defaultConfig;
     }
   } catch (e) {
@@ -610,7 +622,7 @@ function saveMaintenanceConfig(config: MaintenanceConfig) {
   try {
     fs.writeFileSync(MAINTENANCE_FILE, JSON.stringify(config, null, 2), "utf-8");
   } catch (e) {
-    console.error("Failed to save maintenance config", e);
+    console.error("Failed to save maintenance config:", e);
   }
 }
 
