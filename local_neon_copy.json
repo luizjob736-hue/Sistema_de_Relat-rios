@@ -1,4 +1,13 @@
 {
+  "copiedAt": "2026-10-01T13:25:48.898Z",
+  "source": "Neon PostgreSQL (sa-east-1)",
+  "summary": {
+    "usersCount": 17,
+    "schemasCount": 2,
+    "recordsCount": 6750,
+    "tratativasCount": 5000,
+    "backupsCount": 50
+  },
   "users": [
     {
       "id": "admin-1",

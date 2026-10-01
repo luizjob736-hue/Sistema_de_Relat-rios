@@ -12,9 +12,28 @@ import {
   FileSpreadsheet, 
   RotateCcw,
   Layers,
-  ArrowDownToLine
+  ArrowDownToLine,
+  Server,
+  Copy,
+  Terminal,
+  FileCode
 } from "lucide-react";
 import { DatabaseBackupItem, ReportSchema } from "../types";
+
+interface LocalNeonStatus {
+  hasLocalJson: boolean;
+  hasSqlDump: boolean;
+  lastCopiedAt: string | null;
+  summary: {
+    usersCount: number;
+    schemasCount: number;
+    recordsCount: number;
+    tratativasCount: number;
+    backupsCount: number;
+  } | null;
+  jsonSizeBytes: number;
+  sqlSizeBytes: number;
+}
 
 interface AdminBackupsManagerProps {
   schemas: ReportSchema[];
@@ -28,6 +47,10 @@ export default function AdminBackupsManager({ schemas, onDataRestored, showToast
   const [isCreatingBackup, setIsCreatingBackup] = useState<boolean>(false);
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
   const [backupToRestore, setBackupToRestore] = useState<DatabaseBackupItem | null>(null);
+
+  // Local Neon Copy state
+  const [localNeonStatus, setLocalNeonStatus] = useState<LocalNeonStatus | null>(null);
+  const [isCopyingNeon, setIsCopyingNeon] = useState<boolean>(false);
 
   const fetchBackups = async () => {
     setIsLoading(true);
@@ -45,9 +68,41 @@ export default function AdminBackupsManager({ schemas, onDataRestored, showToast
     }
   };
 
+  const fetchLocalNeonStatus = async () => {
+    try {
+      const res = await fetch("/api/admin/local-neon-status");
+      if (res.ok) {
+        const data = await res.json();
+        setLocalNeonStatus(data);
+      }
+    } catch (err) {
+      console.error("Erro ao verificar status da cópia local:", err);
+    }
+  };
+
   useEffect(() => {
     fetchBackups();
+    fetchLocalNeonStatus();
   }, []);
+
+  const handleCopyNeonToLocal = async () => {
+    setIsCopyingNeon(true);
+    try {
+      const res = await fetch("/api/admin/copy-neon-to-local", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(data.message || "Cópia do Neon para banco local concluída!", "success");
+        await fetchLocalNeonStatus();
+      } else {
+        throw new Error("Falha ao copiar banco Neon");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Erro ao copiar dados do Neon para banco local", "error");
+    } finally {
+      setIsCopyingNeon(false);
+    }
+  };
 
   const handleCreateManualBackup = async () => {
     setIsCreatingBackup(true);
@@ -187,6 +242,104 @@ export default function AdminBackupsManager({ schemas, onDataRestored, showToast
             </span>
             <span className="text-[10px] text-slate-600">
               Pronto para download ou restauração
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* NEW: Card de Cópia Neon para Banco Local */}
+      <div className="bg-[#EBEAE5] border-2 border-[#141414] p-5 shadow-none">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#141414]">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="bg-blue-900 text-white text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 flex items-center gap-1">
+                <Server size={12} />
+                SINCRONIZAÇÃO NEON -&gt; BANCO LOCAL
+              </span>
+              <span className="text-xs font-bold text-slate-800">
+                Cópia de Segurança do Neon para Banco de Dados Local
+              </span>
+            </div>
+            <h3 className="text-base font-bold text-[#141414] font-mono flex items-center gap-2">
+              <Copy size={18} />
+              Cópia do Banco Neon para Banco Local (Dump SQL &amp; JSON)
+            </h3>
+            <p className="text-xs text-slate-700 max-w-2xl">
+              Copia <strong>100% das tabelas e dados do Neon PostgreSQL</strong> (Usuários, Schemas, Registros de Clientes, Histórico de Tratativas e Backups) para arquivos locais de banco de dados e script DDL/DML SQL para importação em bancos locais.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleCopyNeonToLocal}
+              disabled={isCopyingNeon}
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold uppercase tracking-wider border border-[#141414] transition-colors"
+            >
+              <Copy size={14} className={isCopyingNeon ? "animate-spin" : ""} />
+              {isCopyingNeon ? "Copiando Dados do Neon..." : "Copiar Neon para Banco Local Agora"}
+            </button>
+
+            {localNeonStatus?.hasSqlDump && (
+              <a
+                href="/api/admin/download-local-sql"
+                download
+                className="flex items-center gap-1.5 px-3 py-2.5 bg-[#D9D8D4] hover:bg-[#C5C4C0] text-[#141414] text-xs font-bold uppercase border border-[#141414] transition-colors"
+                title="Baixar arquivo .SQL pronto para importação local"
+              >
+                <FileCode size={14} />
+                Baixar Script .SQL ({formatBytes(localNeonStatus.sqlSizeBytes)})
+              </a>
+            )}
+
+            {localNeonStatus?.hasLocalJson && (
+              <a
+                href="/api/admin/download-local-json"
+                download
+                className="flex items-center gap-1.5 px-3 py-2.5 bg-[#D9D8D4] hover:bg-[#C5C4C0] text-[#141414] text-xs font-bold uppercase border border-[#141414] transition-colors"
+                title="Baixar cópia estruturada em JSON"
+              >
+                <FileJson size={14} />
+                Baixar JSON ({formatBytes(localNeonStatus.jsonSizeBytes)})
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* Status details & stats */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4 text-xs font-mono">
+          <div className="bg-[#D9D8D4] p-2.5 border border-[#141414]">
+            <span className="text-[9px] font-sans font-bold text-slate-700 uppercase block">ÚLTIMA CÓPIA</span>
+            <span className="font-bold text-[#141414] block mt-0.5">
+              {localNeonStatus?.lastCopiedAt ? new Date(localNeonStatus.lastCopiedAt).toLocaleString('pt-BR') : 'Nenhuma realizada'}
+            </span>
+          </div>
+
+          <div className="bg-[#D9D8D4] p-2.5 border border-[#141414]">
+            <span className="text-[9px] font-sans font-bold text-slate-700 uppercase block">REGISTROS COPIADOS</span>
+            <span className="font-bold text-[#141414] block mt-0.5">
+              {localNeonStatus?.summary ? `${localNeonStatus.summary.recordsCount} registros` : '-'}
+            </span>
+          </div>
+
+          <div className="bg-[#D9D8D4] p-2.5 border border-[#141414]">
+            <span className="text-[9px] font-sans font-bold text-slate-700 uppercase block">BASES / SCHEMAS</span>
+            <span className="font-bold text-[#141414] block mt-0.5">
+              {localNeonStatus?.summary ? `${localNeonStatus.summary.schemasCount} bases` : '-'}
+            </span>
+          </div>
+
+          <div className="bg-[#D9D8D4] p-2.5 border border-[#141414]">
+            <span className="text-[9px] font-sans font-bold text-slate-700 uppercase block">HISTÓRICO TRATATIVAS</span>
+            <span className="font-bold text-[#141414] block mt-0.5">
+              {localNeonStatus?.summary ? `${localNeonStatus.summary.tratativasCount} registros` : '-'}
+            </span>
+          </div>
+
+          <div className="bg-[#D9D8D4] p-2.5 border border-[#141414] col-span-2 md:col-span-1">
+            <span className="text-[9px] font-sans font-bold text-slate-700 uppercase block">COMANDO DE TERMINAL</span>
+            <span className="text-[10px] font-bold text-blue-900 block mt-0.5 flex items-center gap-1">
+              <Terminal size={11} />
+              npm run copy-local
             </span>
           </div>
         </div>

@@ -2104,4 +2104,193 @@ app.get("/api/export/base-pend-aband.csv", async (req, res) => {
   }
 });
 
+// ==========================================
+// NEON TO LOCAL DATABASE COPY ENDPOINTS
+// ==========================================
+
+app.get("/api/admin/local-neon-status", async (req, res) => {
+  try {
+    const localJsonPath = path.join(process.cwd(), "local_neon_copy.json");
+    const sqlDumpPath = path.join(process.cwd(), "local_neon_dump.sql");
+
+    let status = {
+      hasLocalJson: fs.existsSync(localJsonPath),
+      hasSqlDump: fs.existsSync(sqlDumpPath),
+      lastCopiedAt: null as string | null,
+      summary: null as any,
+      jsonSizeBytes: 0,
+      sqlSizeBytes: 0
+    };
+
+    if (status.hasLocalJson) {
+      const stats = fs.statSync(localJsonPath);
+      status.jsonSizeBytes = stats.size;
+      try {
+        const parsed = JSON.parse(fs.readFileSync(localJsonPath, "utf-8"));
+        status.lastCopiedAt = parsed.copiedAt || stats.mtime.toISOString();
+        status.summary = parsed.summary || null;
+      } catch (e) {}
+    }
+
+    if (status.hasSqlDump) {
+      status.sqlSizeBytes = fs.statSync(sqlDumpPath).size;
+    }
+
+    res.json(status);
+  } catch (err) {
+    console.error("Error getting local neon status:", err);
+    res.status(500).json({ error: "Failed to get local database status" });
+  }
+});
+
+app.post("/api/admin/copy-neon-to-local", async (req, res) => {
+  try {
+    const users = await sql`SELECT id, username, password, role, is_blocked as "isBlocked", blocked_guides as "blockedGuides", allowed_guides as "allowedGuides" FROM users`;
+    const schemas = await sql`SELECT id, name, fields, is_locked as "isLocked", status_configs as "statusConfigs", global_sort_config as "globalSortConfig" FROM report_schemas`;
+    const records = await sql`SELECT id, report_id as "reportId", data FROM dynamic_records`;
+    const tratativas = await sql`SELECT id, created_at as "createdAt", date_str as "dateStr", username, user_role as "userRole", report_id as "reportId", record_id as "recordId", client_name as "clientName", client_cpf as "clientCpf", action_type as "actionType", details FROM audit_tratativas ORDER BY created_at DESC LIMIT 5000`;
+    const backups = await sql`SELECT id, created_at as "createdAt", date_str as "dateStr", backup_type as "backupType", total_schemas as "totalSchemas", total_records as "totalRecords", file_size_bytes as "fileSizeBytes", schemas_summary as "schemasSummary", status FROM database_backups ORDER BY created_at DESC LIMIT 50`;
+
+    const snapshot = {
+      copiedAt: new Date().toISOString(),
+      source: "Neon PostgreSQL (sa-east-1)",
+      summary: {
+        usersCount: users.length,
+        schemasCount: schemas.length,
+        recordsCount: records.length,
+        tratativasCount: tratativas.length,
+        backupsCount: backups.length,
+      },
+      users,
+      schemas,
+      records,
+      tratativas,
+      backups
+    };
+
+    // Save JSON local copy file
+    const localJsonPath = path.join(process.cwd(), "local_neon_copy.json");
+    fs.writeFileSync(localJsonPath, JSON.stringify(snapshot, null, 2), "utf-8");
+
+    // Save fallback cache for offline mode
+    const fallbackPath = path.join(process.cwd(), "db_fallback_cache.json");
+    fs.writeFileSync(fallbackPath, JSON.stringify({ users, schemas, records, tratativas, backups }, null, 2), "utf-8");
+
+    // Build SQL Dump
+    let sqlContent = `-- ==========================================\n`;
+    sqlContent += `-- CÓPIA LOCAL DE DADOS DO BANCO NEON\n`;
+    sqlContent += `-- Data da cópia: ${new Date().toLocaleString('pt-BR')}\n`;
+    sqlContent += `-- Total de registros: ${records.length} em ${schemas.length} bases\n`;
+    sqlContent += `-- ==========================================\n\n`;
+
+    sqlContent += `CREATE TABLE IF NOT EXISTS report_schemas (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  fields JSONB NOT NULL,
+  is_locked BOOLEAN DEFAULT false,
+  status_configs JSONB DEFAULT '[]'::jsonb,
+  global_sort_config JSONB
+);\n\n`;
+
+    sqlContent += `CREATE TABLE IF NOT EXISTS dynamic_records (
+  id TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL REFERENCES report_schemas(id) ON DELETE CASCADE,
+  data JSONB NOT NULL
+);\n\n`;
+
+    sqlContent += `CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  role TEXT NOT NULL,
+  is_blocked BOOLEAN DEFAULT false,
+  blocked_guides JSONB DEFAULT '[]'::jsonb,
+  allowed_guides JSONB DEFAULT '[]'::jsonb
+);\n\n`;
+
+    sqlContent += `CREATE TABLE IF NOT EXISTS audit_tratativas (
+  id TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  date_str TEXT NOT NULL,
+  username TEXT NOT NULL,
+  user_role TEXT,
+  report_id TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  client_name TEXT,
+  client_cpf TEXT,
+  action_type TEXT NOT NULL,
+  details JSONB NOT NULL
+);\n\n`;
+
+    function escapeSqlStr(str: any) {
+      if (str === null || str === undefined) return 'NULL';
+      return `'${String(str).replace(/'/g, "''")}'`;
+    }
+
+    function escapeJsonStr(obj: any) {
+      if (obj === null || obj === undefined) return `'{}'::jsonb`;
+      const json = typeof obj === 'string' ? obj : JSON.stringify(obj);
+      return `'${json.replace(/'/g, "''")}'::jsonb`;
+    }
+
+    users.forEach(u => {
+      sqlContent += `INSERT INTO users (id, username, password, role, is_blocked, blocked_guides, allowed_guides) VALUES (${escapeSqlStr(u.id)}, ${escapeSqlStr(u.username)}, ${escapeSqlStr(u.password)}, ${escapeSqlStr(u.role)}, ${u.isBlocked ? 'true' : 'false'}, ${escapeJsonStr(u.blockedGuides || [])}, ${escapeJsonStr(u.allowedGuides || [])}) ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, password = EXCLUDED.password;\n`;
+    });
+    sqlContent += `\n`;
+
+    schemas.forEach(s => {
+      sqlContent += `INSERT INTO report_schemas (id, name, fields, is_locked, status_configs, global_sort_config) VALUES (${escapeSqlStr(s.id)}, ${escapeSqlStr(s.name)}, ${escapeJsonStr(s.fields)}, ${s.isLocked ? 'true' : 'false'}, ${escapeJsonStr(s.statusConfigs || [])}, ${escapeJsonStr(s.globalSortConfig || null)}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, fields = EXCLUDED.fields;\n`;
+    });
+    sqlContent += `\n`;
+
+    records.forEach(r => {
+      sqlContent += `INSERT INTO dynamic_records (id, report_id, data) VALUES (${escapeSqlStr(r.id)}, ${escapeSqlStr(r.reportId)}, ${escapeJsonStr(r.data)}) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;\n`;
+    });
+    sqlContent += `\n`;
+
+    const sqlDumpPath = path.join(process.cwd(), "local_neon_dump.sql");
+    fs.writeFileSync(sqlDumpPath, sqlContent, "utf-8");
+
+    res.json({
+      success: true,
+      message: "Cópia do banco Neon para banco local realizada com sucesso!",
+      copiedAt: snapshot.copiedAt,
+      summary: snapshot.summary
+    });
+  } catch (err) {
+    console.error("Error copying Neon to local:", err);
+    res.status(500).json({ error: "Failed to copy Neon data to local database" });
+  }
+});
+
+app.get("/api/admin/download-local-sql", async (req, res) => {
+  try {
+    const sqlDumpPath = path.join(process.cwd(), "local_neon_dump.sql");
+    if (fs.existsSync(sqlDumpPath)) {
+      res.setHeader("Content-Disposition", "attachment; filename=\"local_neon_dump.sql\"");
+      res.setHeader("Content-Type", "application/sql; charset=utf-8");
+      return res.sendFile(sqlDumpPath);
+    }
+    res.status(404).json({ error: "SQL dump file not found. Please create a local copy first." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to download SQL dump" });
+  }
+});
+
+app.get("/api/admin/download-local-json", async (req, res) => {
+  try {
+    const localJsonPath = path.join(process.cwd(), "local_neon_copy.json");
+    if (fs.existsSync(localJsonPath)) {
+      res.setHeader("Content-Disposition", "attachment; filename=\"local_neon_copy.json\"");
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      return res.sendFile(localJsonPath);
+    }
+    res.status(404).json({ error: "Local JSON copy file not found. Please create a local copy first." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to download local JSON copy" });
+  }
+});
+
 export default app;
