@@ -54,6 +54,8 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({
   onLogout,
   showToast,
   onOpenUserManagement,
+  onOpenMaintenanceControl,
+  isMaintenanceActive = false,
   initialTab = 'tratativas'
 }) => {
   const [activeTab, setActiveTab] = useState<'tratativas' | 'gerencial_somase' | 'backups'>(initialTab);
